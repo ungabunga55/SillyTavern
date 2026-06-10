@@ -1132,7 +1132,7 @@ export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, 
             case REASONING_EFFORT.high:
                 return 'high';
             case REASONING_EFFORT.max:
-                return 'max';
+                return 'xhigh';
         }
         return null;
     }
