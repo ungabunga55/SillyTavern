@@ -2496,9 +2496,6 @@ router.post('/generate', async function (request, response) {
                     type: thinkingEnabled ? 'enabled' : 'disabled',
                 },
             };
-            if (thinkingEnabled && (/^kimi-k2\.6$/.test(String(request.body.model || '')) || isMoonshotKimiAlwaysOnThinkingModel(request.body.model))) {
-                bodyParams.thinking.keep = 'all';
-            }
             normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled);
             request.body.json_schema
                 ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
