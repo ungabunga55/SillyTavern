@@ -256,6 +256,36 @@ export const tool_reasoning_modes = {
     ACTIVE_CHAIN: 'active_chain',
 };
 
+const moonshotKimiFixedParameterModelRegex = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+
+/**
+ * Checks if a Moonshot Kimi model only accepts fixed sampler values.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model rejects modified sampler values
+ */
+export function isMoonshotKimiFixedParameterModel(model) {
+    return moonshotKimiFixedParameterModelRegex.test(String(model || ''));
+}
+
+/**
+ * Checks if a Moonshot Kimi model always has thinking enabled.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if thinking cannot be disabled
+ */
+export function isMoonshotKimiAlwaysOnThinkingModel(model) {
+    return /^kimi-k2\.7-code$/.test(String(model || ''));
+}
+
+/**
+ * Checks if a Moonshot Kimi request will produce thinking output.
+ * @param {string} model Model identifier
+ * @param {boolean} includeReasoning Whether reasoning was requested
+ * @returns {boolean} True if thinking output should be preserved
+ */
+export function isMoonshotKimiThinkingEnabledModel(model, includeReasoning) {
+    return isMoonshotKimiAlwaysOnThinkingModel(model) || (isMoonshotKimiFixedParameterModel(model) && includeReasoning);
+}
+
 // Providers that support interleaved reasoning forwarding in tool-call chains.
 const interleaved_reasoning_providers = [
     chat_completion_sources.OPENROUTER,
@@ -935,10 +965,15 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const audioInlining = isAudioInliningSupported();
     const canUseTools = ToolManager.isToolCallingSupported();
     const includeSignature = isReasoningSignatureSupported();
-    const isToolReasoningProvider = interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
-    const toolReasoningMode = isToolReasoningProvider
-        ? getEffectiveToolReasoningMode()
-        : tool_reasoning_modes.DISABLED;
+    const isMoonshotKimiThinkingEnabled = oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT
+        && isMoonshotKimiThinkingEnabledModel(oai_settings.moonshot_model, oai_settings.show_thoughts);
+    const isToolReasoningProvider = isMoonshotKimiThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
+    let toolReasoningMode = tool_reasoning_modes.DISABLED;
+    if (isMoonshotKimiThinkingEnabled) {
+        toolReasoningMode = tool_reasoning_modes.ACTIVE_CHAIN;
+    } else if (isToolReasoningProvider) {
+        toolReasoningMode = getEffectiveToolReasoningMode();
+    }
     const includeToolReasoning = toolReasoningMode !== tool_reasoning_modes.DISABLED;
     const lastUserIdx = messages.findLastIndex(x => x.role === 'user');
 
@@ -2996,12 +3031,13 @@ export async function createGenerationParameters(settings, model, type, messages
 
     // https://platform.moonshot.ai/docs/api/chat#public-service-address
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        // >Kimi API is fully compatible with OpenAI's API format
-        if (/kimi-k2.5/.test(model)) {
+        // Kimi K2.5+ models use fixed sampler values; sending modified values is rejected.
+        if (isMoonshotKimiFixedParameterModel(model)) {
             delete generate_data.temperature;
             delete generate_data.top_p;
             delete generate_data.frequency_penalty;
             delete generate_data.presence_penalty;
+            delete generate_data.n;
         }
     }
 
@@ -3102,7 +3138,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', images: [], signature: '', toolSignatures: {} };
+            const state = { reasoning: '', toolReasoning: '', images: [], signature: '', toolSignatures: {} };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -3224,11 +3260,14 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+        const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
+            ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
+            ?? '';
         if (show_thoughts) {
-            state.reasoning +=
-                data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content ??
-                data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning ??
-                '';
+            state.reasoning += reasoningDelta;
+        }
+        if (chat_completion_source === chat_completion_sources.MOONSHOT && isMoonshotKimiAlwaysOnThinkingModel(getChatCompletionModel())) {
+            state.toolReasoning += reasoningDelta;
         }
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     } else if (chat_completion_source === chat_completion_sources.MISTRALAI) {
@@ -5290,6 +5329,8 @@ function getMoonshotMaxContext(model, isUnlocked) {
         'kimi-latest': max_256k,
         'kimi-thinking-preview': max_32k,
         'kimi-k2.5': max_256k,
+        'kimi-k2.6': max_256k,
+        'kimi-k2.7-code': max_256k,
         'kimi-k2-0905-preview': max_256k,
         'kimi-k2-turbo-preview': max_256k,
         'kimi-k2-thinking': max_256k,
@@ -6201,6 +6242,8 @@ export function isImageInliningSupported() {
         'moonshot-v1-32k-vision-preview',
         'moonshot-v1-128k-vision-preview',
         'kimi-k2.5',
+        'kimi-k2.6',
+        'kimi-k2.7-code',
         'kimi-latest',
         // Z.AI (GLM)
         'glm-4.5v',
@@ -6254,7 +6297,8 @@ export function isImageInliningSupported() {
         case chat_completion_sources.COMETAPI:
             return true;
         case chat_completion_sources.MOONSHOT:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.moonshot_model)?.supports_image_in);
+            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.moonshot_model)?.supports_image_in)
+                || visionSupportedModels.some(model => String(oai_settings.moonshot_model || '').includes(model));
         case chat_completion_sources.NANOGPT:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.nanogpt_model)?.capabilities?.vision);
         case chat_completion_sources.ZAI:
@@ -6290,6 +6334,11 @@ export function isVideoInliningSupported() {
         'gemini-exp-1206',
         'gemini-3',
         'gemma-4',
+        // Moonshot
+        'kimi-k2.5',
+        'kimi-k2.6',
+        'kimi-k2.7-code',
+        'kimi-latest',
         // Z.AI (GLM)
         'glm-4.5v',
         'glm-4.6v',
@@ -6303,6 +6352,8 @@ export function isVideoInliningSupported() {
             return videoSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
         case chat_completion_sources.OPENROUTER:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('video'));
+        case chat_completion_sources.MOONSHOT:
+            return videoSupportedModels.some(model => String(oai_settings.moonshot_model || '').includes(model));
         case chat_completion_sources.ZAI:
             return videoSupportedModels.some(model => oai_settings.zai_model.includes(model));
         default:

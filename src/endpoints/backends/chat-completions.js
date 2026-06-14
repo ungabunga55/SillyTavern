@@ -97,6 +97,56 @@ const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
 const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 
+const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+
+/**
+ * Checks if a Moonshot Kimi model only accepts fixed sampler values.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model rejects modified sampler values
+ */
+function isMoonshotKimiFixedParameterModel(model) {
+    return MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX.test(String(model || ''));
+}
+
+/**
+ * Checks if a Moonshot Kimi model always has thinking enabled.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if thinking cannot be disabled
+ */
+function isMoonshotKimiAlwaysOnThinkingModel(model) {
+    return /^kimi-k2\.7-code$/.test(String(model || ''));
+}
+
+/**
+ * Moves SillyTavern's internal reasoning field to Kimi's reasoning_content field.
+ * @param {object[]} messages Prompt messages
+ * @param {boolean} thinkingEnabled Whether the request uses Kimi thinking mode
+ * @returns {void}
+ */
+function normalizeMoonshotReasoningContent(messages, thinkingEnabled) {
+    if (!Array.isArray(messages)) {
+        return;
+    }
+
+    for (const message of messages) {
+        const hasToolCalls = Array.isArray(message.tool_calls);
+        if (hasToolCalls && typeof message.reasoning === 'string') {
+            message.reasoning_content = message.reasoning;
+            delete message.reasoning;
+        }
+
+        if (!hasToolCalls) {
+            delete message.reasoning;
+            delete message.reasoning_content;
+            continue;
+        }
+
+        if (thinkingEnabled && !('reasoning_content' in message)) {
+            message.reasoning_content = '';
+        }
+    }
+}
+
 /**
  * Module-scoped Claude caching configuration values.
  */
@@ -2440,11 +2490,16 @@ router.post('/generate', async function (request, response) {
             apiUrl = new URL(request.body.reverse_proxy || API_MOONSHOT).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MOONSHOT, request.body.secret_id);
             headers = {};
+            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning);
             bodyParams = {
                 thinking: {
-                    type: request.body.include_reasoning ? 'enabled' : 'disabled',
+                    type: thinkingEnabled ? 'enabled' : 'disabled',
                 },
             };
+            if (thinkingEnabled && (/^kimi-k2\.6$/.test(String(request.body.model || '')) || isMoonshotKimiAlwaysOnThinkingModel(request.body.model))) {
+                bodyParams.thinking.keep = 'all';
+            }
+            normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled);
             request.body.json_schema
                 ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
                 : addAssistantPrefix(request.body.messages, [], 'partial');
@@ -2544,6 +2599,11 @@ router.post('/generate', async function (request, response) {
         if (!isTextCompletion && Array.isArray(request.body.tools) && request.body.tools.length > 0) {
             bodyParams['tools'] = request.body.tools;
             bodyParams['tool_choice'] = request.body.tool_choice;
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT
+                && bodyParams.thinking?.type === 'enabled'
+                && !['auto', 'none', undefined].includes(bodyParams['tool_choice'])) {
+                bodyParams['tool_choice'] = 'auto';
+            }
         }
 
         if (request.body.json_schema && !bodyParams['response_format']) {
@@ -2575,6 +2635,14 @@ router.post('/generate', async function (request, response) {
             'n': request.body.n,
             ...bodyParams,
         };
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && isMoonshotKimiFixedParameterModel(request.body.model)) {
+            delete requestBody.temperature;
+            delete requestBody.presence_penalty;
+            delete requestBody.frequency_penalty;
+            delete requestBody.top_p;
+            delete requestBody.n;
+        }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {
             excludeKeysByYaml(requestBody, request.body.custom_exclude_body);

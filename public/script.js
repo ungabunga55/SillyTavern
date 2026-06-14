@@ -107,6 +107,7 @@ import {
     openai_messages_count,
     chat_completion_sources,
     getChatCompletionModel,
+    isMoonshotKimiAlwaysOnThinkingModel,
     proxies,
     loadProxyPresets,
     selected_proxy,
@@ -3557,6 +3558,8 @@ class StreamingProcessor {
         this.images = [];
         /** @type {string?} */
         this.reasoningSignature = null;
+        /** @type {string} Reasoning text to preserve in tool-call chains. */
+        this.toolReasoning = '';
     }
 
     /**
@@ -3864,6 +3867,7 @@ class StreamingProcessor {
                 }
                 // Get the updated reasoning string into the handler
                 this.reasoningHandler.updateReasoning(this.messageId, state?.reasoning);
+                this.toolReasoning = state?.toolReasoning || this.reasoningHandler.reasoning;
                 this.images = state?.images ?? [];
                 this.reasoningSignature = state?.signature ?? null;
                 await eventSource.emit(event_types.STREAM_TOKEN_RECEIVED, text);
@@ -5390,7 +5394,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                     await streamingProcessor.finalizeIntermediaryMessage(streamingProcessor.messageId, getMessage, { unlockUI: false });
                 }
                 const invocationResult = await ToolManager.invokeFunctionTools(streamingProcessor.toolCalls, {
-                    reasoningText: streamingProcessor.reasoningHandler.reasoning,
+                    reasoningText: streamingProcessor.toolReasoning || streamingProcessor.reasoningHandler.reasoning,
                 });
                 const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
                 if (hasToolCalls) {
@@ -5460,6 +5464,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         let getMessage = extractMessageFromData(data);
         let title = extractTitleFromData(data);
         let reasoning = extractReasoningFromData(data);
+        let toolReasoning = reasoning;
         let imageUrls = extractImagesFromData(data);
         const reasoningSignature = extractReasoningSignatureFromData(data);
         kobold_horde_model = title;
@@ -5478,6 +5483,15 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 
         if (power_user.trim_spaces) {
             reasoning = reasoning.trim();
+        }
+
+        if (main_api === 'openai' && oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT && isMoonshotKimiAlwaysOnThinkingModel(getChatCompletionModel())) {
+            toolReasoning = getRegexedString(extractReasoningFromData(data, { ignoreShowThoughts: true }), regex_placement.REASONING);
+            if (power_user.trim_spaces) {
+                toolReasoning = toolReasoning.trim();
+            }
+        } else {
+            toolReasoning = reasoning;
         }
 
         if (isContinue) {
@@ -5516,7 +5530,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             const hasToolCalls = ToolManager.hasToolCalls(data);
             const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(getMessage) && !reasoning;
             hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
-            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: reasoning });
+            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: toolReasoning });
             const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
             if (hasToolCalls) {
                 if (shouldStopGeneration) {
