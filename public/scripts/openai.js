@@ -2537,6 +2537,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.CUSTOM,
         chat_completion_sources.XAI,
+        chat_completion_sources.MISTRALAI,
         chat_completion_sources.AIMLAPI,
         chat_completion_sources.OPENROUTER,
         chat_completion_sources.POLLINATIONS,
@@ -2552,6 +2553,25 @@ function getReasoningEffort(settings = null, model = null) {
     }
 
     function resolveReasoningEffort() {
+        if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
+            if (!settings.show_thoughts) {
+                return 'none';
+            }
+
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                case reasoning_effort_types.low:
+                case reasoning_effort_types.medium:
+                case reasoning_effort_types.high:
+                case reasoning_effort_types.max:
+                    return reasoning_effort_types.high;
+                case reasoning_effort_types.min:
+                    return 'none';
+                default:
+                    return ['high', 'none'].includes(settings.reasoning_effort) ? settings.reasoning_effort : reasoning_effort_types.high;
+            }
+        }
+
         if (settings.chat_completion_source === chat_completion_sources.DEEPSEEK) {
             switch (settings.reasoning_effort) {
                 case reasoning_effort_types.auto:
@@ -3212,11 +3232,19 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         }
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     } else if (chat_completion_source === chat_completion_sources.MISTRALAI) {
-        if (show_thoughts) {
-            state.reasoning += (data.choices?.filter(x => x?.delta?.content?.[0]?.thinking)?.[0]?.delta?.content?.[0]?.thinking?.[0]?.text || '');
-        }
         const content = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-        return Array.isArray(content) ? content.map(x => x.text).filter(x => x).join('') : content;
+        if (Array.isArray(content)) {
+            if (show_thoughts) {
+                state.reasoning += content
+                    .filter(chunk => chunk?.type === 'thinking' && Array.isArray(chunk.thinking))
+                    .flatMap(chunk => chunk.thinking)
+                    .filter(chunk => chunk?.type === 'text' && typeof chunk.text === 'string')
+                    .map(chunk => chunk.text)
+                    .join('');
+            }
+            return content.filter(chunk => chunk?.type === 'text' && typeof chunk.text === 'string').map(chunk => chunk.text).join('');
+        }
+        return content;
     } else {
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     }

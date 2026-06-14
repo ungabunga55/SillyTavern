@@ -865,6 +865,7 @@ async function sendMistralAIRequest(request, response) {
             'stream': request.body.stream,
             'safe_prompt': request.body.safe_prompt,
             'random_seed': request.body.seed === -1 ? undefined : request.body.seed,
+            'reasoning_effort': ['high', 'none'].includes(request.body.reasoning_effort) ? request.body.reasoning_effort : undefined,
             'stop': Array.isArray(request.body.stop) && request.body.stop.length > 0 ? request.body.stop : undefined,
         };
 

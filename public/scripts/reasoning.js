@@ -124,7 +124,14 @@ export function extractReasoningFromData(data, {
                 case chat_completion_sources.CLAUDE:
                     return data?.content?.filter(part => part.type === 'thinking')?.map(part => part.thinking)?.join('\n\n') ?? '';
                 case chat_completion_sources.MISTRALAI:
-                    return data?.choices?.[0]?.message?.content?.[0]?.thinking?.map(part => part.text)?.filter(x => x)?.join('\n\n') ?? '';
+                    return Array.isArray(data?.choices?.[0]?.message?.content)
+                        ? data.choices[0].message.content
+                            .filter(chunk => chunk?.type === 'thinking' && Array.isArray(chunk.thinking))
+                            .flatMap(chunk => chunk.thinking)
+                            .filter(chunk => chunk?.type === 'text' && typeof chunk.text === 'string')
+                            .map(chunk => chunk.text)
+                            .join('\n\n')
+                        : '';
                 case chat_completion_sources.AIMLAPI:
                 case chat_completion_sources.POLLINATIONS:
                 case chat_completion_sources.MOONSHOT:

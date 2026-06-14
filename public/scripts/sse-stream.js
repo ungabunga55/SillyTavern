@@ -297,22 +297,41 @@ async function* parseStreamData(json) {
                 }
                 return;
             } else if (Array.isArray(json.choices[0].delta.content) && json.choices[0].delta.content.length > 0) {
-                if (Array.isArray(json.choices[0].delta.content[0].thinking) && json.choices[0].delta.content[0].thinking.length > 0) {
-                    if (typeof json.choices[0].delta.content[0].thinking[0].text === 'string' && json.choices[0].delta.content[0].thinking[0].text.length > 0) {
-                        for (let j = 0; j < json.choices[0].delta.content[0].thinking[0].text.length; j++) {
-                            const str = json.choices[0].delta.content[0].thinking[0].text[j];
-                            const choiceClone = structuredClone(json.choices[0]);
-                            choiceClone.delta.content[0].thinking[0].text = str;
-                            const choices = [choiceClone];
-                            yield {
-                                data: { ...json, choices },
-                                chunk: str,
-                                reasoning: true,
-                            };
-                        }
-                        return;
+                const thinking = json.choices[0].delta.content
+                    .filter(chunk => chunk?.type === 'thinking' && Array.isArray(chunk.thinking))
+                    .flatMap(chunk => chunk.thinking)
+                    .filter(chunk => chunk?.type === 'text' && typeof chunk.text === 'string')
+                    .map(chunk => chunk.text)
+                    .join('');
+                const text = json.choices[0].delta.content
+                    .filter(chunk => chunk?.type === 'text' && typeof chunk.text === 'string')
+                    .map(chunk => chunk.text)
+                    .join('');
+                if (thinking.length > 0 || text.length > 0) {
+                    for (let j = 0; j < thinking.length; j++) {
+                        const str = thinking[j];
+                        const choiceClone = structuredClone(json.choices[0]);
+                        choiceClone.delta.content = [{ type: 'thinking', thinking: [{ type: 'text', text: str }] }];
+                        const choices = [choiceClone];
+                        yield {
+                            data: { ...json, choices },
+                            chunk: str,
+                            reasoning: true,
+                        };
                     }
+                    for (let j = 0; j < text.length; j++) {
+                        const str = text[j];
+                        const choiceClone = structuredClone(json.choices[0]);
+                        choiceClone.delta.content = [{ type: 'text', text: str }];
+                        const choices = [choiceClone];
+                        yield {
+                            data: { ...json, choices },
+                            chunk: str,
+                        };
+                    }
+                    return;
                 }
+                return;
             }
         } else if (typeof json.choices[0].message === 'object') {
             if (typeof json.choices[0].message.content === 'string' && json.choices[0].message.content.length > 0) {
