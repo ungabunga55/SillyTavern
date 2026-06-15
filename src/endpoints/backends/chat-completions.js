@@ -1615,11 +1615,12 @@ async function sendChutesRequest(request, response) {
  * @param {express.Response} response Express response
  */
 async function sendMinimaxRequest(request, response) {
-    const apiUrl = request.body.minimax_endpoint === MINIMAX_ENDPOINT.CN
+    const defaultApiUrl = request.body.minimax_endpoint === MINIMAX_ENDPOINT.CN
         ? API_MINIMAX_CN : API_MINIMAX;
-    const apiKey = readSecret(request.user.directories, SECRET_KEYS.MINIMAX, request.body.secret_id);
+    const apiUrl = new URL(request.body.reverse_proxy || defaultApiUrl).toString();
+    const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MINIMAX, request.body.secret_id);
 
-    if (!apiKey) {
+    if (!apiKey && !request.body.reverse_proxy) {
         console.warn('MiniMax key is missing.');
         return response.status(400).send({ error: true });
     }
@@ -1985,6 +1986,12 @@ router.post('/status', async function (request, statusResponse) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.SILICONFLOW, request.body.secret_id);
             headers = {};
             queryParams = { type: 'text', sub_type: 'chat' };
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MINIMAX) {
+            const defaultApiUrl = request.body.minimax_endpoint === MINIMAX_ENDPOINT.CN
+                ? API_MINIMAX_CN : API_MINIMAX;
+            apiUrl = new URL(request.body.reverse_proxy || defaultApiUrl).toString();
+            apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MINIMAX, request.body.secret_id);
+            headers = {};
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.WORKERS_AI) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.WORKERS_AI, request.body.secret_id);
 

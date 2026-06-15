@@ -2424,6 +2424,20 @@ function saveModelList(data) {
 
         $('#model_moonshot_select').val(oai_settings.moonshot_model).trigger('change');
     }
+
+    if (oai_settings.chat_completion_source == chat_completion_sources.MINIMAX) {
+        $('#model_minimax_select').empty();
+        model_list.forEach((model) => {
+            $('#model_minimax_select').append(new Option(model.id, model.id));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.minimax_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.minimax_model)) {
+            oai_settings.minimax_model = model_list[0].id;
+        }
+
+        $('#model_minimax_select').val(oai_settings.minimax_model).trigger('change');
+    }
 }
 
 /**
@@ -2748,6 +2762,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.XAI,
         chat_completion_sources.ZAI,
         chat_completion_sources.MOONSHOT,
+        chat_completion_sources.MINIMAX,
     ];
 
     // Sources that support logprobs
@@ -4440,7 +4455,6 @@ async function getStatusOpen() {
         chat_completion_sources.VERTEXAI,
         chat_completion_sources.PERPLEXITY,
         chat_completion_sources.ZAI,
-        chat_completion_sources.MINIMAX,
     ];
     if (noValidateSources.includes(oai_settings.chat_completion_source)) {
         let status = t`Key saved; press \"Test Message\" to verify.`;
@@ -4477,6 +4491,7 @@ async function getStatusOpen() {
         chat_completion_sources.XAI,
         chat_completion_sources.ZAI,
         chat_completion_sources.MOONSHOT,
+        chat_completion_sources.MINIMAX,
     ];
     if (oai_settings.reverse_proxy && validateProxySources.includes(oai_settings.chat_completion_source)) {
         await validateReverseProxy();
@@ -6021,7 +6036,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.CHUTES]: { key: SECRET_KEYS.CHUTES, selector: '#api_key_chutes', proxy: false },
         [chat_completion_sources.POLLINATIONS]: { key: SECRET_KEYS.POLLINATIONS, selector: '#api_key_pollinations', proxy: false, keyless: oai_settings.pollinations_endpoint === POLLINATIONS_ENDPOINT.ANONYMOUS },
         [chat_completion_sources.WORKERS_AI]: { key: SECRET_KEYS.WORKERS_AI, selector: '#api_key_workers_ai', proxy: false },
-        [chat_completion_sources.MINIMAX]: { key: SECRET_KEYS.MINIMAX, selector: '#api_key_minimax', proxy: false },
+        [chat_completion_sources.MINIMAX]: { key: SECRET_KEYS.MINIMAX, selector: '#api_key_minimax', proxy: true },
     };
 
     // Vertex AI Express version - use API key
