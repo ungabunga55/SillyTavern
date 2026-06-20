@@ -3451,8 +3451,8 @@ export function getCharacterCardFieldsLazy({ chid = undefined } = {}) {
 export function getCharacterCardFields({ chid = undefined } = {}) {
     const lazy = getCharacterCardFieldsLazy({ chid });
 
-    // Resolve all lazy fields into a plain object
-    return {
+    // Resolve the non-greeting fields eagerly into a plain object.
+    const fields = {
         system: lazy.system,
         mesExamples: lazy.mesExamples,
         description: lazy.description,
@@ -3463,9 +3463,23 @@ export function getCharacterCardFields({ chid = undefined } = {}) {
         version: lazy.version,
         charDepthPrompt: lazy.charDepthPrompt,
         creatorNotes: lazy.creatorNotes,
-        firstMessage: lazy.firstMessage,
-        alternateGreetings: lazy.alternateGreetings,
     };
+
+    // Keep the greeting fields lazy. Resolving them runs baseChatReplace over
+    // first_mes and every alternate greeting, so eagerly resolving here would
+    // fire {{setvar::}} side effects from unselected greetings on every call.
+    Object.defineProperty(fields, 'firstMessage', {
+        get: () => lazy.firstMessage,
+        enumerable: true,
+        configurable: true,
+    });
+    Object.defineProperty(fields, 'alternateGreetings', {
+        get: () => lazy.alternateGreetings,
+        enumerable: true,
+        configurable: true,
+    });
+
+    return /** @type {CharacterCardFields} */ (fields);
 }
 
 /**

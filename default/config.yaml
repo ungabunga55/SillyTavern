@@ -370,8 +370,9 @@ claude:
   ## 5m: base price x 1.25
   ## 1h: base price x 2
   extendedTTL: false
-  # Enables adaptive thinking for supported models (Opus 4.6+).
-  # Disable to enforce legacy thinking mode (with thinking budget).
+  # Enables adaptive thinking for Claude Opus 4.6 and Claude Sonnet 4.6.
+  # Disable to enforce legacy thinking mode (with thinking budget) on these models.
+  # Newer adaptive-only models ignore this setting.
   # https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
   enableAdaptiveThinking: false
 # -- GOOGLE GEMINI API CONFIGURATION --

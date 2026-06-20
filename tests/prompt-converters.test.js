@@ -101,7 +101,7 @@ describe('convertTextCompletionPrompt', () => {
 
 
 describe('calculateClaudeBudgetTokens', () => {
-    describe('adaptive model (Opus 4.6+)', () => {
+    describe('adaptive model', () => {
         test('auto returns null', () => {
             expect(mod.calculateClaudeBudgetTokens(8192, 'auto', true, true)).toBeNull();
         });
@@ -110,6 +110,7 @@ describe('calculateClaudeBudgetTokens', () => {
         test('low returns "low"', () => expect(mod.calculateClaudeBudgetTokens(8192, 'low', true, true)).toBe('low'));
         test('medium returns "medium"', () => expect(mod.calculateClaudeBudgetTokens(8192, 'medium', true, true)).toBe('medium'));
         test('high returns "high"', () => expect(mod.calculateClaudeBudgetTokens(8192, 'high', true, true)).toBe('high'));
+        test('xhigh returns "xhigh"', () => expect(mod.calculateClaudeBudgetTokens(8192, 'xhigh', true, true)).toBe('xhigh'));
         test('max returns "max"', () => expect(mod.calculateClaudeBudgetTokens(8192, 'max', true, true)).toBe('max'));
     });
 
@@ -141,6 +142,10 @@ describe('calculateClaudeBudgetTokens', () => {
             expect(mod.calculateClaudeBudgetTokens(40000, 'max', true, false)).toBe(38000);
         });
 
+        test('xhigh uses max budget behavior', () => {
+            expect(mod.calculateClaudeBudgetTokens(40000, 'xhigh', true, false)).toBe(38000);
+        });
+
         test('non-streaming caps at 21333', () => {
             expect(mod.calculateClaudeBudgetTokens(100000, 'max', false, false)).toBe(21333);
         });
@@ -163,6 +168,7 @@ describe('calculateGoogleBudgetTokens', () => {
         test('low returns low', () => expect(mod.calculateGoogleBudgetTokens(8192, 'low', 'gemini-3.5-flash')).toBe('low'));
         test('medium returns medium', () => expect(mod.calculateGoogleBudgetTokens(8192, 'medium', 'gemini-3.5-flash')).toBe('medium'));
         test('high returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'high', 'gemini-3.5-flash')).toBe('high'));
+        test('xhigh returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'xhigh', 'gemini-3.5-flash')).toBe('high'));
         test('max returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'max', 'gemini-3.5-flash')).toBe('high'));
     });
 
@@ -172,6 +178,7 @@ describe('calculateGoogleBudgetTokens', () => {
         test('low returns low', () => expect(mod.calculateGoogleBudgetTokens(8192, 'low', 'gemini-3.0-pro')).toBe('low'));
         test('medium returns low', () => expect(mod.calculateGoogleBudgetTokens(8192, 'medium', 'gemini-3.0-pro')).toBe('low'));
         test('high returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'high', 'gemini-3.0-pro')).toBe('high'));
+        test('xhigh returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'xhigh', 'gemini-3.0-pro')).toBe('high'));
         test('max returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'max', 'gemini-3.0-pro')).toBe('high'));
     });
 
@@ -186,6 +193,7 @@ describe('calculateGoogleBudgetTokens', () => {
 
         test('caps at 24576', () => {
             expect(mod.calculateGoogleBudgetTokens(500000, 'max', 'gemini-2.0-flash')).toBe(24576);
+            expect(mod.calculateGoogleBudgetTokens(500000, 'xhigh', 'gemini-2.0-flash')).toBe(24576);
         });
     });
 
@@ -210,6 +218,7 @@ describe('calculateGoogleBudgetTokens', () => {
 
         test('caps at 32768', () => {
             expect(mod.calculateGoogleBudgetTokens(500000, 'max', 'gemini-2.5-pro')).toBe(32768);
+            expect(mod.calculateGoogleBudgetTokens(500000, 'xhigh', 'gemini-2.5-pro')).toBe(32768);
         });
     });
 

@@ -491,6 +491,7 @@ export const OPENAI_REASONING_EFFORT_MODELS = [
 
 export const OPENAI_REASONING_EFFORT_MAP = {
     min: 'minimal',
+    xhigh: 'high',
 };
 
 /**
@@ -506,6 +507,7 @@ export const NANOGPT_REASONING_EFFORT_MAP = {
     low: 'minimal',
     medium: 'low',
     high: 'medium',
+    xhigh: 'high',
     max: 'high',
 };
 

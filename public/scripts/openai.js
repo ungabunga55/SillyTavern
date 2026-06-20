@@ -239,6 +239,7 @@ export const reasoning_effort_types = {
     low: 'low',
     medium: 'medium',
     high: 'high',
+    xhigh: 'xhigh',
     min: 'min',
     max: 'max',
 };
@@ -2601,6 +2602,16 @@ function getReasoningEffort(settings = null, model = null) {
         return settings.reasoning_effort;
     }
 
+    // ElectronHub exposes supported efforts in model metadata. Respect exact
+    // provider-supported values before applying generic OpenAI-style aliases.
+    if (settings.chat_completion_source === chat_completion_sources.ELECTRONHUB && Array.isArray(model_list) && settings.reasoning_effort) {
+        const currentModel = model_list.find(m => m.id === model);
+        const supportedEfforts = currentModel?.metadata?.supported_reasoning_efforts;
+        if (Array.isArray(supportedEfforts) && supportedEfforts.includes(settings.reasoning_effort)) {
+            return settings.reasoning_effort;
+        }
+    }
+
     function resolveReasoningEffort() {
         if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
             if (!settings.show_thoughts) {
@@ -2612,6 +2623,7 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.low:
                 case reasoning_effort_types.medium:
                 case reasoning_effort_types.high:
+                case reasoning_effort_types.xhigh:
                 case reasoning_effort_types.max:
                     return reasoning_effort_types.high;
                 case reasoning_effort_types.min:
@@ -2644,6 +2656,8 @@ function getReasoningEffort(settings = null, model = null) {
                     return 'medium';
                 case reasoning_effort_types.high:
                     return 'high';
+                case reasoning_effort_types.xhigh:
+                    return 'xhigh';
                 case reasoning_effort_types.max:
                     return 'xhigh';
                 default:
@@ -2669,6 +2683,7 @@ function getReasoningEffort(settings = null, model = null) {
                 }
 
                 return reasoning_effort_types.low;
+            case reasoning_effort_types.xhigh:
             case reasoning_effort_types.max:
                 return reasoning_effort_types.high;
             default:
