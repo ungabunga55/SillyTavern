@@ -1986,7 +1986,7 @@
                                             </span>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="makersuite,vertexai,aimlapi,openrouter,claude,electronhub,chutes,nanogpt">
+                                    <div class="range-block" data-source="makersuite,vertexai,aimlapi,openrouter,claude,electronhub,chutes,nanogpt,xai">
                                         <label for="openai_enable_web_search" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_enable_web_search" type="checkbox" />
                                             <span data-i18n="Enable web search">Enable web search</span>
@@ -2170,8 +2170,11 @@
                                                 <option data-i18n="openai_reasoning_effort_xhigh" value="xhigh">Extra High</option>
                                                 <option data-i18n="openai_reasoning_effort_maximum" value="max">Maximum</option>
                                             </select>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,custom,xai,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,custom,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
                                                 OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.
+                                            </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="xai" data-i18n="xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.">
+                                                xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.">
                                                 Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.

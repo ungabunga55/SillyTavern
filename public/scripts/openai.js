@@ -260,6 +260,36 @@ export const tool_reasoning_modes = {
 const moonshotKimiFixedParameterModelRegex = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 
 /**
+ * Checks if an xAI model supports the reasoning_effort parameter.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if reasoning_effort can be sent
+ */
+function isXaiReasoningEffortModel(model) {
+    return /^grok-4\.3(?:\b|-)/.test(String(model || ''));
+}
+
+/**
+ * Checks if an xAI model is a reasoning model.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if reasoning-only parameter restrictions apply
+ */
+function isXaiReasoningModel(model) {
+    const modelId = String(model || '');
+    const isGrok4NonReasoning = /^grok-4-fast-non-reasoning(?:\b|-)/.test(modelId);
+    return (/^grok-4(?:\b|-|\.)/.test(modelId) && !isGrok4NonReasoning) || /(?:^|-)grok-3-mini(?:\b|-)/.test(modelId) || /^grok-code(?:\b|-)/.test(modelId);
+}
+
+/**
+ * Checks if an xAI model ignores logprobs/top_logprobs.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if logprobs should not be sent
+ */
+function isXaiGrok420OrNewerModel(model) {
+    const match = String(model || '').match(/^grok-4\.(\d+)/);
+    return Boolean(match && Number(match[1]) >= 20);
+}
+
+/**
  * Checks if a Moonshot Kimi model only accepts fixed sampler values.
  * @param {string} model Model identifier
  * @returns {boolean} True if the model rejects modified sampler values
@@ -2656,6 +2686,20 @@ function getReasoningEffort(settings = null, model = null) {
             }
         }
 
+        if (settings.chat_completion_source === chat_completion_sources.XAI) {
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.min:
+                    return 'none';
+                case reasoning_effort_types.xhigh:
+                case reasoning_effort_types.max:
+                    return reasoning_effort_types.high;
+                default:
+                    return settings.reasoning_effort;
+            }
+        }
+
         if (settings.chat_completion_source === chat_completion_sources.CUSTOM && /^koboldcpp\/(.+)$/.test(model)) {
             switch (settings.reasoning_effort) {
                 case reasoning_effort_types.auto:
@@ -2996,23 +3040,29 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.XAI) {
-        if (model.includes('grok-3-mini')) {
-            delete generate_data.presence_penalty;
-            delete generate_data.frequency_penalty;
-            delete generate_data.stop;
-        } else {
-            // As of 2025/09/21, only grok-3-mini accepts reasoning_effort
+        const isGrok3 = /^grok-3(?:\b|-)/.test(model);
+        const isReasoningModel = isXaiReasoningModel(model);
+
+        generate_data.max_completion_tokens = generate_data.max_tokens;
+        delete generate_data.max_tokens;
+        generate_data.top_p = generate_data.top_p || Number.EPSILON;
+
+        if (!isXaiReasoningEffortModel(model)) {
             delete generate_data.reasoning_effort;
         }
 
-        if (model.includes('grok-4') || model.includes('grok-code')) {
+        if (isGrok3 || isReasoningModel) {
             delete generate_data.presence_penalty;
-            delete generate_data.frequency_penalty;
+        }
 
-            // grok-4-fast-non-reasoning accepts stop
-            if (!model.includes('grok-4-fast-non-reasoning')) {
-                delete generate_data.stop;
-            }
+        if (isReasoningModel) {
+            delete generate_data.frequency_penalty;
+            delete generate_data.stop;
+        }
+
+        if (isXaiGrok420OrNewerModel(model)) {
+            delete generate_data.logprobs;
+            delete generate_data.top_logprobs;
         }
     }
 

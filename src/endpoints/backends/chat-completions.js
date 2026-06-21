@@ -98,6 +98,7 @@ const API_OPENROUTER = 'https://openrouter.ai/api/v1';
 const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
 
 /**
  * Checks if a Moonshot Kimi model only accepts fixed sampler values.
@@ -1234,8 +1235,12 @@ async function sendXaiRequest(request, response) {
             bodyParams['stop'] = request.body.stop;
         }
 
-        if (request.body.reasoning_effort) {
-            bodyParams['reasoning_effort'] = request.body.reasoning_effort === 'high' ? 'high' : 'low';
+        if (XAI_REASONING_EFFORTS.has(request.body.reasoning_effort)) {
+            bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+        }
+
+        if (request.body.enable_web_search) {
+            bodyParams['search_parameters'] = { mode: 'on' };
         }
 
         if (request.body.json_schema) {
