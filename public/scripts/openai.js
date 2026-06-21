@@ -2596,6 +2596,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.ELECTRONHUB,
         chat_completion_sources.CHUTES,
         chat_completion_sources.DEEPSEEK,
+        chat_completion_sources.ZAI,
     ];
 
     if (!reasoningEffortSources.includes(settings.chat_completion_source)) {
@@ -2641,6 +2642,17 @@ function getReasoningEffort(settings = null, model = null) {
                     return reasoning_effort_types.max;
                 default:
                     return reasoning_effort_types.high;
+            }
+        }
+
+        if (settings.chat_completion_source === chat_completion_sources.ZAI) {
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.min:
+                    return 'minimal';
+                default:
+                    return settings.reasoning_effort;
             }
         }
 
@@ -3021,6 +3033,9 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_p = generate_data.top_p || 0.01;
         generate_data.stop = getCustomStoppingStrings(1);
         generate_data.zai_endpoint = settings.zai_endpoint || ZAI_ENDPOINT.COMMON;
+        if (model !== 'glm-5.2') {
+            delete generate_data.reasoning_effort;
+        }
         delete generate_data.presence_penalty;
         delete generate_data.frequency_penalty;
     }
@@ -5249,7 +5264,7 @@ function getZaiMaxContext(model, isUnlocked) {
     }
 
     const contextMap = {
-        'glm-5.2': max_200k,
+        'glm-5.2': max_1mil,
         'glm-5.1': max_200k,
         'glm-5-turbo': max_200k,
         'glm-5v-turbo': max_200k,

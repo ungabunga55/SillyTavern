@@ -2155,7 +2155,7 @@
                                             </strong>
                                         </div>
                                     </div>
-                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,xai,makersuite,vertexai,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,mistralai">
+                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,xai,makersuite,vertexai,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,mistralai,zai">
                                         <div class="flex-container oneline-dropdown" title="Constrains effort on reasoning for reasoning models.&#10;Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response." data-i18n="[title]Constrains effort on reasoning for reasoning models.">
                                             <label for="openai_reasoning_effort">
                                                 <span data-i18n="Reasoning Effort">Reasoning Effort</span>
@@ -2175,6 +2175,9 @@
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.">
                                                 Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.
+                                            </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="zai" data-i18n="GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.">
+                                                GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
                                             </div>
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
                                                 Request model reasoning = Off with Reasoning Effort = Minimum disables reasoning entirely on models that support that, but can cause errors with some models.
