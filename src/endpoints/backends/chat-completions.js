@@ -282,6 +282,92 @@ function convertOpenAIResponsesInput(messages) {
 }
 
 /**
+ * Converts xAI Chat Completions messages to native Responses input items.
+ * Unlike OpenAI, xAI keeps system messages in the full input history.
+ * @param {object[]} messages Chat Completions messages
+ * @returns {object[]} Responses input
+ */
+function convertXAIResponsesInput(messages) {
+    if (!Array.isArray(messages)) {
+        return [{ role: 'user', content: String(messages ?? '') }];
+    }
+
+    const input = [];
+    const toolCallIds = new Map();
+    let toolCallCounter = 0;
+    const getResponsesToolCallId = (id) => {
+        if (!id || typeof id !== 'string' || id.startsWith('fc_')) {
+            return id;
+        }
+
+        const mapped = toolCallIds.get(id);
+        if (mapped) {
+            return mapped;
+        }
+
+        const responsesId = `fc_mapped_${++toolCallCounter}`;
+        toolCallIds.set(id, responsesId);
+        return responsesId;
+    };
+
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        if (Array.isArray(message.tool_calls)) {
+            if (message.content) {
+                input.push(removeUndefinedValues({
+                    role: message.role,
+                    content: convertOpenAIResponsesContent(message.content),
+                }));
+            }
+
+            for (const toolCall of message.tool_calls) {
+                if (toolCall?.type !== 'function') {
+                    continue;
+                }
+
+                const callId = getResponsesToolCallId(toolCall.id);
+                input.push(removeUndefinedValues({
+                    type: 'function_call',
+                    id: callId,
+                    call_id: callId,
+                    name: toolCall.function?.name,
+                    arguments: toolCall.function?.arguments || '',
+                    status: 'completed',
+                }));
+            }
+            continue;
+        }
+
+        if (message.role === 'tool') {
+            input.push(removeUndefinedValues({
+                type: 'function_call_output',
+                call_id: getResponsesToolCallId(message.tool_call_id),
+                output: message.content ?? '',
+            }));
+            continue;
+        }
+
+        if (message.content === undefined || message.content === null) {
+            continue;
+        }
+
+        input.push(removeUndefinedValues({
+            role: message.role,
+            content: convertOpenAIResponsesContent(message.content),
+        }));
+    }
+
+    if (input.length === 0) {
+        input.push({ role: 'user', content: 'Continue.' });
+    }
+
+    return input;
+}
+
+/**
  * Converts Chat Completions tool definitions to Responses tool definitions.
  * @param {object[]} tools Chat Completions tool definitions
  * @returns {object[]|undefined} Responses tool definitions
@@ -379,6 +465,48 @@ function buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) {
         top_logprobs: bodyParams.top_logprobs,
         include: include.length ? include : undefined,
         user: bodyParams.user,
+    });
+}
+
+/**
+ * Builds a native xAI Responses request body.
+ * @param {import('express').Request} request Express request
+ * @param {object} bodyParams Provider-specific body params
+ * @param {object[]} input Responses input
+ * @returns {object} Responses request body
+ */
+function buildXAIResponsesRequestBody(request, bodyParams, input) {
+    const text = {};
+    if (request.body.json_schema) {
+        text.format = removeUndefinedValues({
+            type: 'json_schema',
+            name: request.body.json_schema.name,
+            description: request.body.json_schema.description,
+            strict: request.body.json_schema.strict ?? true,
+            schema: request.body.json_schema.value,
+        });
+    }
+
+    const reasoning = {};
+    if (XAI_REASONING_EFFORTS.has(request.body.reasoning_effort)) {
+        reasoning.effort = request.body.reasoning_effort;
+    }
+
+    return removeUndefinedValues({
+        model: request.body.model,
+        input: input,
+        store: false,
+        stream: request.body.stream,
+        temperature: request.body.temperature,
+        top_p: request.body.top_p,
+        max_output_tokens: request.body.max_completion_tokens ?? request.body.max_tokens,
+        tools: convertOpenAIResponsesTools(bodyParams.tools),
+        tool_choice: convertOpenAIResponsesToolChoice(bodyParams.tool_choice),
+        text: Object.keys(text).length ? text : undefined,
+        reasoning: Object.keys(reasoning).length ? reasoning : undefined,
+        search_parameters: bodyParams.search_parameters,
+        logprobs: bodyParams.logprobs,
+        top_logprobs: bodyParams.top_logprobs,
     });
 }
 
@@ -1470,6 +1598,7 @@ async function sendDeepSeekRequest(request, response) {
 async function sendXaiRequest(request, response) {
     const apiUrl = new URL(request.body.reverse_proxy || API_XAI).toString();
     const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.XAI, request.body.secret_id);
+    const useXAIResponsesApi = request.body.xai_api_type === 'responses';
 
     if (!apiKey && !request.body.reverse_proxy) {
         console.warn('xAI API key is missing.');
@@ -1519,21 +1648,22 @@ async function sendXaiRequest(request, response) {
         }
 
         const processedMessages = request.body.messages = convertXAIMessages(request.body.messages, getPromptNames(request));
-
-        const requestBody = {
-            'messages': processedMessages,
-            'model': request.body.model,
-            'temperature': request.body.temperature,
-            'max_tokens': request.body.max_tokens,
-            'max_completion_tokens': request.body.max_completion_tokens,
-            'stream': request.body.stream,
-            'presence_penalty': request.body.presence_penalty,
-            'frequency_penalty': request.body.frequency_penalty,
-            'top_p': request.body.top_p,
-            'seed': request.body.seed,
-            'n': request.body.n,
-            ...bodyParams,
-        };
+        const requestBody = useXAIResponsesApi
+            ? buildXAIResponsesRequestBody(request, bodyParams, convertXAIResponsesInput(processedMessages))
+            : {
+                'messages': processedMessages,
+                'model': request.body.model,
+                'temperature': request.body.temperature,
+                'max_tokens': request.body.max_tokens,
+                'max_completion_tokens': request.body.max_completion_tokens,
+                'stream': request.body.stream,
+                'presence_penalty': request.body.presence_penalty,
+                'frequency_penalty': request.body.frequency_penalty,
+                'top_p': request.body.top_p,
+                'seed': request.body.seed,
+                'n': request.body.n,
+                ...bodyParams,
+            };
 
         const config = {
             method: 'POST',
@@ -1547,7 +1677,7 @@ async function sendXaiRequest(request, response) {
 
         console.debug('xAI request:', requestBody);
 
-        const generateResponse = await fetch(apiUrl + '/chat/completions', config);
+        const generateResponse = await fetch(apiUrl + (useXAIResponsesApi ? '/responses' : '/chat/completions'), config);
 
         if (request.body.stream) {
             await forwardFetchResponse(generateResponse, response);

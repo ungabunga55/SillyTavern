@@ -391,6 +391,7 @@ export const settingsToUpdate = {
     group_models: ['#cc_group_models', 'group_models', true, true],
     sort_models: ['#cc_sort_models', 'sort_models', false, true],
     openai_api_type: ['#openai_api_type', 'openai_api_type', false, false],
+    xai_api_type: ['#xai_api_type', 'xai_api_type', false, false],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
@@ -514,6 +515,7 @@ const default_settings = {
     sort_models: 'alphabetically',
     group_models: false,
     openai_api_type: openai_api_types.CHAT_COMPLETIONS,
+    xai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_model: 'gpt-4-turbo',
     claude_model: 'claude-sonnet-4-5',
     google_model: 'gemini-2.5-pro',
@@ -651,7 +653,7 @@ function setOpenAIMessages(chat) {
     // Get current API and model for thought signature validation
     const currentApi = oai_settings.chat_completion_source;
     const currentModel = getChatCompletionModel();
-    const useOpenAIResponses = currentApi === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
+    const useNativeResponses = isNativeResponsesSource(currentApi, oai_settings);
 
     for (let i = chat.length - 1; i >= 0; i--) {
         let role = chat[j].is_user ? 'user' : 'assistant';
@@ -704,13 +706,13 @@ function setOpenAIMessages(chat) {
         const isSameModel = originApi === currentApi && originModel === currentModel;
         // In group chats, only include reasoning from the currently generating character
         const isOtherGroupMember = selected_group && chat[j].name !== name2;
-        const signature = isSameModel && !isOtherGroupMember && !useOpenAIResponses ? chat[j]?.extra?.reasoning_signature : null;
-        const reasoning = isSameModel && !isOtherGroupMember && !useOpenAIResponses ? String(chat[j]?.extra?.reasoning ?? '') : '';
+        const signature = isSameModel && !isOtherGroupMember && !useNativeResponses ? chat[j]?.extra?.reasoning_signature : null;
+        const reasoning = isSameModel && !isOtherGroupMember && !useNativeResponses ? String(chat[j]?.extra?.reasoning ?? '') : '';
 
         // Remove reasoning metadata from invocations if the API/model don't match
         if (Array.isArray(invocations) && invocations.length > 0) {
             invocations.forEach((invocation, index) => {
-                if ((!isSameModel || useOpenAIResponses) && (invocation.signature || invocation.reasoning)) {
+                if ((!isSameModel || useNativeResponses) && (invocation.signature || invocation.reasoning)) {
                     const cloneInvocation = structuredClone(invocation);
                     delete cloneInvocation.signature;
                     delete cloneInvocation.reasoning;
@@ -2888,11 +2890,11 @@ export async function createGenerationParameters(settings, model, type, messages
 
     const isO1 = gptSources.includes(settings.chat_completion_source) && ['o1-2024-12-17', 'o1'].includes(model);
     const isWorkersAIJsonMode = settings.chat_completion_source === chat_completion_sources.WORKERS_AI && jsonSchema;
-    const isOpenAIResponses = settings.chat_completion_source === chat_completion_sources.OPENAI && settings.openai_api_type === openai_api_types.RESPONSES;
+    const isNativeResponses = isNativeResponsesSource(settings.chat_completion_source, settings);
     const stream = settings.stream_openai && type !== 'quiet' && !isO1 && !isWorkersAIJsonMode;
 
     const noMultiSwipeTypes = ['quiet', 'impersonate', 'continue'];
-    const canMultiSwipe = settings.n > 1 && !noMultiSwipeTypes.includes(type) && multiswipeSources.includes(settings.chat_completion_source) && !isOpenAIResponses;
+    const canMultiSwipe = settings.n > 1 && !noMultiSwipeTypes.includes(type) && multiswipeSources.includes(settings.chat_completion_source) && !isNativeResponses;
 
     let logit_bias = {};
     if (settings.bias_preset_selected
@@ -2936,6 +2938,10 @@ export async function createGenerationParameters(settings, model, type, messages
 
     if (settings.chat_completion_source === chat_completion_sources.OPENAI) {
         generate_data.openai_api_type = settings.openai_api_type || openai_api_types.CHAT_COMPLETIONS;
+    }
+
+    if (settings.chat_completion_source === chat_completion_sources.XAI) {
+        generate_data.xai_api_type = settings.xai_api_type || openai_api_types.CHAT_COMPLETIONS;
     }
 
     if (settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
@@ -3219,12 +3225,24 @@ export async function createGenerationParameters(settings, model, type, messages
 }
 
 /**
- * Checks if the current request should use OpenAI's native Responses API.
+ * Checks if a provider setting uses a native Responses API.
+ * @param {string} source Chat completion source
+ * @param {object} settings Chat completion settings
+ * @returns {boolean} True if native Responses API should be used
+ */
+function isNativeResponsesSource(source, settings = oai_settings) {
+    return (source === chat_completion_sources.OPENAI && settings.openai_api_type === openai_api_types.RESPONSES)
+        || (source === chat_completion_sources.XAI && settings.xai_api_type === openai_api_types.RESPONSES);
+}
+
+/**
+ * Checks if the current request should use a native Responses API.
  * @param {object} data Generation request data
  * @returns {boolean} True if the request uses Responses API
  */
-function isOpenAIResponsesRequest(data) {
-    return data?.chat_completion_source === chat_completion_sources.OPENAI && data?.openai_api_type === openai_api_types.RESPONSES;
+function isNativeResponsesRequest(data) {
+    return (data?.chat_completion_source === chat_completion_sources.OPENAI && data?.openai_api_type === openai_api_types.RESPONSES)
+        || (data?.chat_completion_source === chat_completion_sources.XAI && data?.xai_api_type === openai_api_types.RESPONSES);
 }
 
 /**
@@ -3285,7 +3303,7 @@ function getResponsesStreamingReply(data, state) {
             return '';
         case 'response.incomplete': {
             const reason = data.response?.incomplete_details?.reason || 'unknown';
-            console.warn(`OpenAI Responses stream ended incomplete: ${reason}`);
+            console.warn(`Responses stream ended incomplete: ${reason}`);
             return '';
         }
         default:
@@ -3325,7 +3343,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
 
     const model = getChatCompletionModel(oai_settings);
     const { generate_data, stream, canMultiSwipe } = await createGenerationParameters(oai_settings, model, type, messages, { jsonSchema });
-    const isResponsesRequest = isOpenAIResponsesRequest(generate_data);
+    const isResponsesRequest = isNativeResponsesRequest(generate_data);
     await eventSource.emit(event_types.CHAT_COMPLETION_SETTINGS_READY, generate_data);
 
     const generate_url = '/api/backends/chat-completions/generate';
@@ -3358,11 +3376,14 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
                 const parsed = JSON.parse(rawData);
 
                 if (isResponsesRequest) {
+                    if (!parsed?.type && value.type && value.type !== 'message') {
+                        parsed.type = value.type;
+                    }
                     if (parsed?.type === 'error') {
                         throw new Error(parsed.message || parsed.error?.message || t`API returned an error`);
                     }
                     if (parsed?.type === 'response.failed') {
-                        throw new Error(parsed.response?.error?.message || t`OpenAI Responses stream failed`);
+                        throw new Error(parsed.response?.error?.message || t`Responses stream failed`);
                     }
                     text += getResponsesStreamingReply(parsed, state);
                     if (parsed?.type === 'response.output_text.delta' || parsed?.type === 'response.text.delta' || parsed?.type === 'response.refusal.delta') {
@@ -7369,6 +7390,11 @@ export function initOpenAI() {
 
     $('#openai_api_type').on('input', function () {
         oai_settings.openai_api_type = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#xai_api_type').on('input', function () {
+        oai_settings.xai_api_type = String($(this).val());
         saveSettingsDebounced();
     });
 

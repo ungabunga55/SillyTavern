@@ -2004,6 +2004,24 @@
                                             </span>
                                         </div>
                                     </div>
+                                    <div class="range-block" data-source="xai">
+                                        <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10">
+                                            <div class="flex-container oneline-dropdown">
+                                                <label for="xai_api_type" data-i18n="xAI API Type">
+                                                    xAI API Type
+                                                </label>
+                                                <select id="xai_api_type">
+                                                    <option value="chat_completions" data-i18n="Chat Completions">Chat Completions</option>
+                                                    <option value="responses" data-i18n="Responses">Responses</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="toggle-description justifyLeft">
+                                            <span data-i18n="Uses xAI's native Responses API when selected. Responses requests are sent with store:false, full input history, and no previous_response_id or encrypted reasoning replay.">
+                                                Uses xAI's native Responses API when selected. Responses requests are sent with store:false, full input history, and no previous_response_id or encrypted reasoning replay.
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="range-block" data-source="makersuite,vertexai,aimlapi,openrouter,claude,electronhub,chutes,nanogpt,xai">
                                         <label for="openai_enable_web_search" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_enable_web_search" type="checkbox" />
