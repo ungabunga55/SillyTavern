@@ -14,6 +14,8 @@ class FishAudioTtsProvider {
         voiceMap: {},
         model: 's2.1-pro-free',
         voiceId: '',
+        temperature: 0.7,
+        top_p: 0.7,
     };
 
     static models = [
@@ -43,6 +45,16 @@ class FishAudioTtsProvider {
                 <label for="fish_audio_tts_voice_id">Voice ID</label>
                 <input id="fish_audio_tts_voice_id" class="text_pole" type="text" placeholder="Fish Audio reference_id / model ID" />
             </div>
+            <div>
+                <label for="fish_audio_tts_temperature">Temperature <span id="fish_audio_tts_temperature_output"></span></label>
+                <input id="fish_audio_tts_temperature" type="range" value="0.7" min="0" max="1" step="0.05" />
+                <small>Controls expressiveness. Higher is more varied, lower is more consistent.</small>
+            </div>
+            <div>
+                <label for="fish_audio_tts_top_p">Top P <span id="fish_audio_tts_top_p_output"></span></label>
+                <input id="fish_audio_tts_top_p" type="range" value="0.7" min="0" max="1" step="0.05" />
+                <small>Controls diversity via nucleus sampling.</small>
+            </div>
         </div>`;
     }
 
@@ -65,6 +77,10 @@ class FishAudioTtsProvider {
 
         $('#fish_audio_tts_model').val(this.settings.model);
         $('#fish_audio_tts_voice_id').val(this.settings.voiceId);
+        $('#fish_audio_tts_temperature').val(this.settings.temperature);
+        $('#fish_audio_tts_temperature_output').text(this.settings.temperature);
+        $('#fish_audio_tts_top_p').val(this.settings.top_p);
+        $('#fish_audio_tts_top_p_output').text(this.settings.top_p);
 
         $('#fish_audio_tts_key').toggleClass('success', !!secret_state[SECRET_KEYS.FISH_AUDIO]);
         [event_types.SECRET_WRITTEN, event_types.SECRET_DELETED, event_types.SECRET_ROTATED].forEach(event => {
@@ -73,6 +89,8 @@ class FishAudioTtsProvider {
 
         $('#fish_audio_tts_model').on('change', () => this.onSettingsChange());
         $('#fish_audio_tts_voice_id').on('input', () => this.onSettingsChange());
+        $('#fish_audio_tts_temperature').on('input', () => this.onSettingsChange());
+        $('#fish_audio_tts_top_p').on('input', () => this.onSettingsChange());
 
         await this.checkReady();
     }
@@ -80,6 +98,10 @@ class FishAudioTtsProvider {
     onSettingsChange() {
         this.settings.model = String($('#fish_audio_tts_model').val() || this.defaultSettings.model);
         this.settings.voiceId = String($('#fish_audio_tts_voice_id').val() || '').trim();
+        this.settings.temperature = Number($('#fish_audio_tts_temperature').val());
+        this.settings.top_p = Number($('#fish_audio_tts_top_p').val());
+        $('#fish_audio_tts_temperature_output').text(this.settings.temperature);
+        $('#fish_audio_tts_top_p_output').text(this.settings.top_p);
         saveTtsProviderSettings();
     }
 
@@ -147,6 +169,8 @@ class FishAudioTtsProvider {
                 input: text,
                 voice: referenceId,
                 model: this.settings.model,
+                temperature: this.settings.temperature,
+                top_p: this.settings.top_p,
             }),
         });
 

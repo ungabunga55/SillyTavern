@@ -484,6 +484,8 @@ router.post('/fish-audio/generate-voice', async (request, response) => {
         const text = String(request.body.input || '').trim();
         const referenceId = String(request.body.voice || '').trim();
         const model = String(request.body.model || 's2.1-pro-free').trim();
+        const temperature = Number(request.body.temperature ?? 0.7);
+        const topP = Number(request.body.top_p ?? 0.7);
 
         if (!text) {
             return response.status(400).send('Text is required');
@@ -496,6 +498,8 @@ router.post('/fish-audio/generate-voice', async (request, response) => {
         const requestBody = {
             text,
             reference_id: referenceId,
+            temperature: Number.isFinite(temperature) ? Math.min(Math.max(temperature, 0), 1) : 0.7,
+            top_p: Number.isFinite(topP) ? Math.min(Math.max(topP, 0), 1) : 0.7,
             format: 'mp3',
         };
 
