@@ -6194,6 +6194,38 @@ function extractTitleFromData(data) {
     return undefined;
 }
 
+function extractOpenAIResponsesText(data) {
+    if (data?.object !== 'response') {
+        return '';
+    }
+
+    if (typeof data.output_text === 'string') {
+        return data.output_text;
+    }
+
+    if (!Array.isArray(data.output)) {
+        return '';
+    }
+
+    return data.output
+        .filter(item => item?.type === 'message')
+        .flatMap(item => Array.isArray(item.content) ? item.content : [])
+        .filter(part => part?.type === 'output_text' || part?.type === 'refusal')
+        .map(part => part.text ?? part.refusal ?? '')
+        .join('');
+}
+
+function extractOpenAIResponsesImages(data) {
+    if (data?.object !== 'response' || !Array.isArray(data.output)) {
+        return [];
+    }
+
+    return data.output
+        .filter(item => item?.type === 'image_generation_call' && typeof item.result === 'string')
+        .map(item => `data:image/png;base64,${item.result}`)
+        .filter(isDataURL);
+}
+
 /**
  * Extracts the image from the response data.
  * @param {object} data Response data
@@ -6205,6 +6237,11 @@ function extractTitleFromData(data) {
 function extractImagesFromData(data, { mainApi = null, chatCompletionSource = null } = {}) {
     switch (mainApi ?? main_api) {
         case 'openai': {
+            const responsesImages = extractOpenAIResponsesImages(data);
+            if (responsesImages.length > 0) {
+                return responsesImages;
+            }
+
             switch (chatCompletionSource ?? oai_settings.chat_completion_source) {
                 case chat_completion_sources.VERTEXAI:
                 case chat_completion_sources.MAKERSUITE: {
@@ -6291,7 +6328,7 @@ export function extractMessageFromData(data, activeApi = null) {
             case 'novel':
                 return data.output;
             case 'openai':
-                return data?.content?.filter(p => p.type === 'text')?.map(p => p.text)?.join('\n\n') ?? data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.text ?? data?.message?.content?.[0]?.text ?? data?.message?.tool_plan ?? '';
+                return extractOpenAIResponsesText(data) || (data?.content?.filter(p => p.type === 'text')?.map(p => p.text)?.join('\n\n') ?? data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.text ?? data?.message?.content?.[0]?.text ?? data?.message?.tool_plan ?? '');
             default:
                 return '';
         }

@@ -323,6 +323,22 @@ const interleaved_reasoning_providers = [
     chat_completion_sources.CUSTOM,
 ];
 
+export const openai_api_types = {
+    CHAT_COMPLETIONS: 'chat_completions',
+    RESPONSES: 'responses',
+};
+
+function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
+    const modelId = String(model || '').toLowerCase();
+    if (/^(o1|o3|o4)/.test(modelId)) {
+        return true;
+    }
+    if (/^gpt-5\.5/.test(modelId)) {
+        return true;
+    }
+    return modelId.startsWith('gpt-5') && Boolean(reasoningEffort) && reasoningEffort !== 'none';
+}
+
 export const ZAI_ENDPOINT = {
     COMMON: 'common',
     CODING: 'coding',
@@ -374,6 +390,7 @@ export const settingsToUpdate = {
     max_context_unlocked: ['#oai_max_context_unlocked', 'max_context_unlocked', true, false],
     group_models: ['#cc_group_models', 'group_models', true, true],
     sort_models: ['#cc_sort_models', 'sort_models', false, true],
+    openai_api_type: ['#openai_api_type', 'openai_api_type', false, false],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
@@ -496,6 +513,7 @@ const default_settings = {
     personality_format: default_personality_format,
     sort_models: 'alphabetically',
     group_models: false,
+    openai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_model: 'gpt-4-turbo',
     claude_model: 'claude-sonnet-4-5',
     google_model: 'gemini-2.5-pro',
@@ -633,6 +651,7 @@ function setOpenAIMessages(chat) {
     // Get current API and model for thought signature validation
     const currentApi = oai_settings.chat_completion_source;
     const currentModel = getChatCompletionModel();
+    const useOpenAIResponses = currentApi === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
 
     for (let i = chat.length - 1; i >= 0; i--) {
         let role = chat[j].is_user ? 'user' : 'assistant';
@@ -685,13 +704,13 @@ function setOpenAIMessages(chat) {
         const isSameModel = originApi === currentApi && originModel === currentModel;
         // In group chats, only include reasoning from the currently generating character
         const isOtherGroupMember = selected_group && chat[j].name !== name2;
-        const signature = isSameModel && !isOtherGroupMember ? chat[j]?.extra?.reasoning_signature : null;
-        const reasoning = isSameModel && !isOtherGroupMember ? String(chat[j]?.extra?.reasoning ?? '') : '';
+        const signature = isSameModel && !isOtherGroupMember && !useOpenAIResponses ? chat[j]?.extra?.reasoning_signature : null;
+        const reasoning = isSameModel && !isOtherGroupMember && !useOpenAIResponses ? String(chat[j]?.extra?.reasoning ?? '') : '';
 
         // Remove reasoning metadata from invocations if the API/model don't match
         if (Array.isArray(invocations) && invocations.length > 0) {
             invocations.forEach((invocation, index) => {
-                if (!isSameModel && (invocation.signature || invocation.reasoning)) {
+                if ((!isSameModel || useOpenAIResponses) && (invocation.signature || invocation.reasoning)) {
                     const cloneInvocation = structuredClone(invocation);
                     delete cloneInvocation.signature;
                     delete cloneInvocation.reasoning;
@@ -2869,10 +2888,11 @@ export async function createGenerationParameters(settings, model, type, messages
 
     const isO1 = gptSources.includes(settings.chat_completion_source) && ['o1-2024-12-17', 'o1'].includes(model);
     const isWorkersAIJsonMode = settings.chat_completion_source === chat_completion_sources.WORKERS_AI && jsonSchema;
+    const isOpenAIResponses = settings.chat_completion_source === chat_completion_sources.OPENAI && settings.openai_api_type === openai_api_types.RESPONSES;
     const stream = settings.stream_openai && type !== 'quiet' && !isO1 && !isWorkersAIJsonMode;
 
     const noMultiSwipeTypes = ['quiet', 'impersonate', 'continue'];
-    const canMultiSwipe = settings.n > 1 && !noMultiSwipeTypes.includes(type) && multiswipeSources.includes(settings.chat_completion_source);
+    const canMultiSwipe = settings.n > 1 && !noMultiSwipeTypes.includes(type) && multiswipeSources.includes(settings.chat_completion_source) && !isOpenAIResponses;
 
     let logit_bias = {};
     if (settings.bias_preset_selected
@@ -2913,6 +2933,10 @@ export async function createGenerationParameters(settings, model, type, messages
         'custom_prompt_post_processing': settings.custom_prompt_post_processing,
         'verbosity': getVerbosity(settings),
     };
+
+    if (settings.chat_completion_source === chat_completion_sources.OPENAI) {
+        generate_data.openai_api_type = settings.openai_api_type || openai_api_types.CHAT_COMPLETIONS;
+    }
 
     if (settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
         generate_data.azure_base_url = settings.azure_base_url;
@@ -3177,7 +3201,7 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.presence_penalty;
             delete generate_data.logit_bias;
             delete generate_data.stop;
-        } else {
+        } else if (!isOpenAIResponses || isOpenAIResponsesNoSamplingModel(model, generate_data.reasoning_effort)) {
             delete generate_data.temperature;
             delete generate_data.top_p;
             delete generate_data.frequency_penalty;
@@ -3192,6 +3216,96 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     return { generate_data, stream, canMultiSwipe };
+}
+
+/**
+ * Checks if the current request should use OpenAI's native Responses API.
+ * @param {object} data Generation request data
+ * @returns {boolean} True if the request uses Responses API
+ */
+function isOpenAIResponsesRequest(data) {
+    return data?.chat_completion_source === chat_completion_sources.OPENAI && data?.openai_api_type === openai_api_types.RESPONSES;
+}
+
+/**
+ * Extracts visible text from a native OpenAI Responses object.
+ * @param {object} response Responses API response object
+ * @returns {string} Extracted visible text
+ */
+function extractOpenAIResponsesText(response) {
+    if (typeof response?.output_text === 'string') {
+        return response.output_text;
+    }
+
+    if (!Array.isArray(response?.output)) {
+        return '';
+    }
+
+    return response.output
+        .filter(item => item?.type === 'message')
+        .flatMap(item => Array.isArray(item.content) ? item.content : [])
+        .filter(part => part?.type === 'output_text' || part?.type === 'refusal')
+        .map(part => part.text ?? part.refusal ?? '')
+        .join('');
+}
+
+/**
+ * Extracts text deltas from native OpenAI Responses streaming events.
+ * @param {object} data Parsed Responses SSE event data
+ * @param {object} state Streaming state
+ * @returns {string} Visible text delta
+ */
+function getResponsesStreamingReply(data, state) {
+    switch (data?.type) {
+        case 'response.text.delta':
+        case 'response.output_text.delta':
+            return data.delta || '';
+        case 'response.refusal.delta':
+            return data.delta || '';
+        case 'response.reasoning_summary_text.delta':
+        case 'response.reasoning_text.delta':
+            if (oai_settings.show_thoughts) {
+                state.reasoning += data.delta || '';
+                state.responsesReasoningStreamed = true;
+            }
+            return '';
+        case 'response.output_item.done':
+            if (oai_settings.show_thoughts && data.item?.type === 'reasoning' && !state.responsesReasoningStreamed) {
+                state.reasoning += getResponsesReasoningText(data.item);
+            }
+            return '';
+        case 'response.completed':
+            if (!state.responsesStreamedText) {
+                const fallback = extractOpenAIResponsesText(data.response);
+                if (fallback) {
+                    state.responsesStreamedText = true;
+                    return fallback;
+                }
+            }
+            return '';
+        case 'response.incomplete': {
+            const reason = data.response?.incomplete_details?.reason || 'unknown';
+            console.warn(`OpenAI Responses stream ended incomplete: ${reason}`);
+            return '';
+        }
+        default:
+            return '';
+    }
+}
+
+/**
+ * Extracts reasoning summary/text from a native Responses reasoning item.
+ * @param {object} item Responses output item
+ * @returns {string} Reasoning text
+ */
+function getResponsesReasoningText(item) {
+    const summary = Array.isArray(item?.summary)
+        ? item.summary.filter(x => typeof x?.text === 'string').map(x => x.text).join('\n\n')
+        : '';
+    const content = Array.isArray(item?.content)
+        ? item.content.filter(x => typeof x?.text === 'string').map(x => x.text).join('\n\n')
+        : '';
+    return [summary, content].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -3211,6 +3325,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
 
     const model = getChatCompletionModel(oai_settings);
     const { generate_data, stream, canMultiSwipe } = await createGenerationParameters(oai_settings, model, type, messages, { jsonSchema });
+    const isResponsesRequest = isOpenAIResponsesRequest(generate_data);
     await eventSource.emit(event_types.CHAT_COMPLETION_SETTINGS_READY, generate_data);
 
     const generate_url = '/api/backends/chat-completions/generate';
@@ -3241,6 +3356,25 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
                 if (rawData === '[DONE]') return;
                 tryParseStreamingError(response, rawData);
                 const parsed = JSON.parse(rawData);
+
+                if (isResponsesRequest) {
+                    if (parsed?.type === 'error') {
+                        throw new Error(parsed.message || parsed.error?.message || t`API returned an error`);
+                    }
+                    if (parsed?.type === 'response.failed') {
+                        throw new Error(parsed.response?.error?.message || t`OpenAI Responses stream failed`);
+                    }
+                    text += getResponsesStreamingReply(parsed, state);
+                    if (parsed?.type === 'response.output_text.delta' || parsed?.type === 'response.text.delta' || parsed?.type === 'response.refusal.delta') {
+                        state.responsesStreamedText = true;
+                    }
+                    ToolManager.parseToolCalls(toolCalls, parsed, state.toolSignatures);
+                    yield { text, swipes: swipes, logprobs: null, toolCalls: toolCalls, state: state };
+                    if (['response.completed', 'response.failed', 'response.incomplete', 'response.cancelled'].includes(parsed?.type)) {
+                        return;
+                    }
+                    continue;
+                }
 
                 if (canMultiSwipe && Array.isArray(parsed?.choices) && parsed?.choices?.[0]?.index > 0) {
                     const swipeIndex = parsed.choices[0].index - 1;
@@ -7230,6 +7364,11 @@ export function initOpenAI() {
 
     $('#openai_reasoning_effort').on('input', function () {
         oai_settings.reasoning_effort = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#openai_api_type').on('input', function () {
+        oai_settings.openai_api_type = String($(this).val());
         saveSettingsDebounced();
     });
 

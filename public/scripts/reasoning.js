@@ -109,6 +109,18 @@ export function extractReasoningFromData(data, {
         case 'openai':
             if (!ignoreShowThoughts && !oai_settings.show_thoughts) break;
 
+            if (data?.object === 'response' && Array.isArray(data?.output)) {
+                return data.output
+                    .filter(item => item?.type === 'reasoning')
+                    .flatMap(item => [
+                        ...(Array.isArray(item.summary) ? item.summary : []),
+                        ...(Array.isArray(item.content) ? item.content : []),
+                    ])
+                    .filter(part => typeof part?.text === 'string')
+                    .map(part => part.text)
+                    .join('\n\n');
+            }
+
             switch (chatCompletionSource ?? oai_settings.chat_completion_source) {
                 case chat_completion_sources.DEEPSEEK:
                     return data?.choices?.[0]?.message?.reasoning_content ?? '';

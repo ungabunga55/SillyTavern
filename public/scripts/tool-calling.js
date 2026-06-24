@@ -428,6 +428,58 @@ export class ToolManager {
         if (!this.isToolCallingSupported()) {
             return;
         }
+        if (typeof parsed?.type === 'string' && parsed.type.startsWith('response.')) {
+            const choiceIndex = 0;
+            const ensureResponsesToolCall = (outputIndex = 0, itemId = null) => {
+                const toolCallIndex = Number.isInteger(outputIndex) ? outputIndex : 0;
+                if (!Array.isArray(toolCalls[choiceIndex])) {
+                    toolCalls[choiceIndex] = [];
+                }
+                if (itemId) {
+                    const existingIndex = toolCalls[choiceIndex].findIndex(x => x?.__responses_item_id === itemId || x?.id === itemId);
+                    if (existingIndex >= 0) {
+                        return toolCalls[choiceIndex][existingIndex];
+                    }
+                }
+                if (toolCalls[choiceIndex][toolCallIndex] === undefined) {
+                    toolCalls[choiceIndex][toolCallIndex] = { function: { arguments: '' } };
+                }
+                const targetToolCall = toolCalls[choiceIndex][toolCallIndex];
+                if (itemId) {
+                    targetToolCall.__responses_item_id = itemId;
+                }
+                return targetToolCall;
+            };
+
+            if (['response.output_item.added', 'response.output_item.done'].includes(parsed.type) && parsed.item?.type === 'function_call') {
+                const targetToolCall = ensureResponsesToolCall(parsed.output_index, parsed.item.id);
+                targetToolCall.id = parsed.item.call_id || parsed.item.id;
+                targetToolCall.type = 'function';
+                targetToolCall.function ??= {};
+                targetToolCall.function.name = parsed.item.name || targetToolCall.function.name;
+                if (parsed.type === 'response.output_item.done' && typeof parsed.item.arguments === 'string') {
+                    targetToolCall.function.arguments = parsed.item.arguments;
+                }
+            }
+
+            if (parsed.type === 'response.function_call_arguments.delta') {
+                const targetToolCall = ensureResponsesToolCall(parsed.output_index, parsed.call_id || parsed.item_id);
+                if (parsed.call_id) {
+                    targetToolCall.id = parsed.call_id;
+                }
+                ToolManager.#applyToolCallDelta(targetToolCall, { function: { arguments: parsed.delta || '' } });
+            }
+
+            if (parsed.type === 'response.function_call_arguments.done') {
+                const targetToolCall = ensureResponsesToolCall(parsed.output_index, parsed.call_id || parsed.item_id);
+                if (parsed.call_id) {
+                    targetToolCall.id = parsed.call_id;
+                }
+                if (typeof parsed.arguments === 'string') {
+                    targetToolCall.function.arguments = parsed.arguments;
+                }
+            }
+        }
         if (Array.isArray(parsed?.choices)) {
             for (const choice of parsed.choices) {
                 const choiceIndex = (typeof choice.index === 'number') ? choice.index : null;
@@ -719,6 +771,20 @@ export class ToolManager {
         // Google AI Studio tool calls
         if (Array.isArray(data?.responseContent?.parts)) {
             return data.responseContent.parts.filter(p => p.functionCall).map(p => convertGoogleToolCall(p.functionCall, p.thoughtSignature));
+        }
+
+        // Native OpenAI Responses API function calls
+        if (Array.isArray(data?.output)) {
+            return data.output
+                .filter(item => item?.type === 'function_call')
+                .map(item => ({
+                    id: item.call_id || item.id,
+                    type: 'function',
+                    function: {
+                        name: item.name,
+                        arguments: item.arguments || '',
+                    },
+                }));
         }
 
         // Parsed tool calls from non-streaming data

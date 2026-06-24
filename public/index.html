@@ -1986,6 +1986,24 @@
                                             </span>
                                         </div>
                                     </div>
+                                    <div class="range-block" data-source="openai">
+                                        <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10">
+                                            <div class="flex-container oneline-dropdown">
+                                                <label for="openai_api_type" data-i18n="OpenAI API Type">
+                                                    OpenAI API Type
+                                                </label>
+                                                <select id="openai_api_type">
+                                                    <option value="chat_completions" data-i18n="Chat Completions">Chat Completions</option>
+                                                    <option value="responses" data-i18n="Responses">Responses</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="toggle-description justifyLeft">
+                                            <span data-i18n="Uses OpenAI's native Responses API when selected. Responses requests are sent with store:false and do not replay previous reasoning items.">
+                                                Uses OpenAI's native Responses API when selected. Responses requests are sent with store:false and do not replay previous reasoning items.
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="range-block" data-source="makersuite,vertexai,aimlapi,openrouter,claude,electronhub,chutes,nanogpt,xai">
                                         <label for="openai_enable_web_search" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_enable_web_search" type="checkbox" />

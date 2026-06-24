@@ -119,6 +119,270 @@ function isMoonshotKimiAlwaysOnThinkingModel(model) {
 }
 
 /**
+ * Gets the OpenAI Responses-compatible reasoning effort for a model.
+ * @param {string} model Model identifier
+ * @param {string} effort User-selected effort
+ * @returns {string|undefined} Mapped effort, if supported
+ */
+function getOpenAIReasoningEffort(model, effort) {
+    if (!effort || !OPENAI_REASONING_EFFORT_MODELS.includes(model)) {
+        return undefined;
+    }
+
+    return OPENAI_FIXED_REASONING_EFFORT[model] ?? OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
+}
+
+/**
+ * Checks if a Responses request should omit sampling parameters.
+ * @param {string} model Model identifier
+ * @param {string|undefined} effort Reasoning effort
+ * @returns {boolean} True if temperature/top_p should not be sent
+ */
+function isOpenAIResponsesNoSamplingModel(model, effort) {
+    const modelId = String(model || '').toLowerCase();
+    if (/^(o1|o3|o4)/.test(modelId)) {
+        return true;
+    }
+    if (/^gpt-5\.5/.test(modelId)) {
+        return true;
+    }
+    return modelId.startsWith('gpt-5') && Boolean(effort) && effort !== 'none';
+}
+
+/**
+ * Removes undefined values from an object.
+ * @param {Record<string, any>} object Object to clean
+ * @returns {Record<string, any>} Clean object
+ */
+function removeUndefinedValues(object) {
+    return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Converts OpenAI Chat Completions message content to Responses input content.
+ * @param {string|any[]} content Message content
+ * @returns {string|any[]} Responses-compatible content
+ */
+function convertOpenAIResponsesContent(content) {
+    if (!Array.isArray(content)) {
+        return content ?? '';
+    }
+
+    return content.map(part => {
+        if (part?.type === 'text') {
+            return { type: 'input_text', text: part.text ?? '' };
+        }
+
+        if (part?.type === 'image_url') {
+            return removeUndefinedValues({
+                type: 'input_image',
+                image_url: part.image_url?.url ?? part.image_url,
+                detail: part.image_url?.detail,
+            });
+        }
+
+        if (part?.type === 'file') {
+            return removeUndefinedValues({
+                type: 'input_file',
+                filename: part.file?.filename ?? part.filename,
+                file_data: part.file?.file_data ?? part.file_data,
+                file_id: part.file?.file_id ?? part.file_id,
+                file_url: part.file?.file_url ?? part.file_url,
+            });
+        }
+
+        if (part?.type === 'input_audio') {
+            return part;
+        }
+
+        return part;
+    });
+}
+
+/**
+ * Converts OpenAI Chat Completions messages to native Responses input items.
+ * @param {string|object[]} messages Chat Completions messages or a text prompt
+ * @returns {{instructions: string|undefined, input: object[]}} Responses input
+ */
+function convertOpenAIResponsesInput(messages) {
+    if (!Array.isArray(messages)) {
+        return { instructions: undefined, input: [{ type: 'message', role: 'user', content: String(messages ?? '') }] };
+    }
+
+    let instructions;
+    const input = [];
+    let sawNonSystemInput = false;
+
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        if (message.role === 'system' && typeof message.content === 'string' && message.content.trim()) {
+            if (!sawNonSystemInput) {
+                instructions = instructions ? `${instructions}\n\n${message.content}` : message.content;
+                continue;
+            }
+        }
+
+        if (message.role !== 'system') {
+            sawNonSystemInput = true;
+        }
+
+        if (Array.isArray(message.tool_calls)) {
+            if (message.content) {
+                input.push(removeUndefinedValues({
+                    type: 'message',
+                    role: message.role,
+                    content: convertOpenAIResponsesContent(message.content),
+                }));
+            }
+
+            for (const toolCall of message.tool_calls) {
+                if (toolCall?.type !== 'function') {
+                    continue;
+                }
+
+                input.push(removeUndefinedValues({
+                    type: 'function_call',
+                    call_id: toolCall.id,
+                    name: toolCall.function?.name,
+                    arguments: toolCall.function?.arguments || '',
+                    status: 'completed',
+                }));
+            }
+            continue;
+        }
+
+        if (message.role === 'tool') {
+            input.push(removeUndefinedValues({
+                type: 'function_call_output',
+                call_id: message.tool_call_id,
+                output: message.content ?? '',
+            }));
+            continue;
+        }
+
+        if (message.content === undefined || message.content === null) {
+            continue;
+        }
+
+        input.push(removeUndefinedValues({
+            type: 'message',
+            role: message.role,
+            content: convertOpenAIResponsesContent(message.content),
+        }));
+    }
+
+    if (input.length === 0) {
+        input.push({ type: 'message', role: 'user', content: 'Continue.' });
+    }
+
+    return { instructions, input };
+}
+
+/**
+ * Converts Chat Completions tool definitions to Responses tool definitions.
+ * @param {object[]} tools Chat Completions tool definitions
+ * @returns {object[]|undefined} Responses tool definitions
+ */
+function convertOpenAIResponsesTools(tools) {
+    if (!Array.isArray(tools) || tools.length === 0) {
+        return undefined;
+    }
+
+    return tools.map(tool => {
+        if (tool?.type === 'function' && tool.function) {
+            return removeUndefinedValues({
+                type: 'function',
+                name: tool.function.name,
+                description: tool.function.description,
+                parameters: tool.function.parameters,
+                strict: tool.function.strict,
+            });
+        }
+
+        return tool;
+    });
+}
+
+/**
+ * Converts Chat Completions tool_choice to Responses tool_choice.
+ * @param {string|object} toolChoice Chat Completions tool choice
+ * @returns {string|object|undefined} Responses-compatible tool choice
+ */
+function convertOpenAIResponsesToolChoice(toolChoice) {
+    if (!toolChoice || typeof toolChoice === 'string') {
+        return toolChoice;
+    }
+
+    if (toolChoice.type === 'function' && toolChoice.function?.name) {
+        return { type: 'function', name: toolChoice.function.name };
+    }
+
+    return toolChoice;
+}
+
+/**
+ * Builds a native OpenAI Responses request body.
+ * @param {import('express').Request} request Express request
+ * @param {object} bodyParams Provider-specific body params
+ * @param {{instructions: string|undefined, input: object[]}} responsesInput Responses input
+ * @returns {object} Responses request body
+ */
+function buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) {
+    const text = {};
+    if (request.body.json_schema) {
+        text.format = removeUndefinedValues({
+            type: 'json_schema',
+            name: request.body.json_schema.name,
+            description: request.body.json_schema.description,
+            strict: request.body.json_schema.strict ?? true,
+            schema: request.body.json_schema.value,
+        });
+    }
+    if (request.body.verbosity && OPENAI_VERBOSITY_MODELS.test(request.body.model)) {
+        text.verbosity = request.body.verbosity;
+    }
+
+    const effort = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
+    const reasoning = {};
+    if (effort) {
+        reasoning.effort = effort;
+        reasoning.context = 'current_turn';
+    }
+    if (request.body.include_reasoning && OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
+        reasoning.summary = 'auto';
+        reasoning.context = 'current_turn';
+    }
+
+    const include = [];
+    if (bodyParams.top_logprobs) {
+        include.push('message.output_text.logprobs');
+    }
+
+    const omitSampling = isOpenAIResponsesNoSamplingModel(request.body.model, effort);
+
+    return removeUndefinedValues({
+        model: request.body.model,
+        instructions: responsesInput.instructions,
+        input: responsesInput.input,
+        store: false,
+        stream: request.body.stream,
+        temperature: omitSampling ? undefined : request.body.temperature,
+        top_p: omitSampling ? undefined : request.body.top_p,
+        max_output_tokens: request.body.max_completion_tokens ?? request.body.max_tokens,
+        tools: convertOpenAIResponsesTools(bodyParams.tools),
+        tool_choice: convertOpenAIResponsesToolChoice(bodyParams.tool_choice),
+        text: Object.keys(text).length ? text : undefined,
+        reasoning: Object.keys(reasoning).length ? reasoning : undefined,
+        top_logprobs: bodyParams.top_logprobs,
+        include: include.length ? include : undefined,
+        user: bodyParams.user,
+    });
+}
+
+/**
  * Moves SillyTavern's internal reasoning field to Kimi's reasoning_content field.
  * @param {object[]} messages Prompt messages
  * @param {boolean} thinkingEnabled Whether the request uses Kimi thinking mode
@@ -2270,6 +2534,7 @@ router.post('/generate', async function (request, response) {
         let headers;
         let bodyParams;
         const isTextCompletion = Boolean(request.body.model && TEXT_COMPLETION_MODELS.includes(request.body.model)) || typeof request.body.messages === 'string';
+        const useOpenAIResponsesApi = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI && request.body.openai_api_type === 'responses';
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI) {
             apiUrl = new URL(request.body.reverse_proxy || API_OPENAI).toString();
@@ -2584,7 +2849,7 @@ router.post('/generate', async function (request, response) {
         }
 
         // A few of OpenAIs reasoning models support reasoning effort
-        if (request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
+        if (!useOpenAIResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
             if (OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
                 bodyParams['reasoning_effort'] = OPENAI_FIXED_REASONING_EFFORT[request.body.model] ?? OPENAI_REASONING_EFFORT_MAP[request.body.reasoning_effort] ?? request.body.reasoning_effort;
             }
@@ -2593,7 +2858,7 @@ router.post('/generate', async function (request, response) {
             }
         }
 
-        if (request.body.verbosity && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
+        if (!useOpenAIResponsesApi && request.body.verbosity && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
             if (OPENAI_VERBOSITY_MODELS.test(request.body.model)) {
                 bodyParams['verbosity'] = request.body.verbosity;
             }
@@ -2610,7 +2875,9 @@ router.post('/generate', async function (request, response) {
         }
 
         const textPrompt = isTextCompletion ? convertTextCompletionPrompt(request.body.messages) : '';
-        const endpointUrl = isTextCompletion && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.OPENROUTER ?
+        const endpointUrl = useOpenAIResponsesApi ?
+            `${apiUrl}/responses` :
+            isTextCompletion && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.OPENROUTER ?
             `${apiUrl}/completions` :
             `${apiUrl}/chat/completions`;
 
@@ -2641,7 +2908,10 @@ router.post('/generate', async function (request, response) {
             };
         }
 
-        const requestBody = {
+        const responsesInput = useOpenAIResponsesApi
+            ? convertOpenAIResponsesInput(isTextCompletion ? textPrompt : request.body.messages)
+            : undefined;
+        const requestBody = useOpenAIResponsesApi ? buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) : {
             'messages': isTextCompletion === false ? request.body.messages : undefined,
             'prompt': isTextCompletion === true ? textPrompt : undefined,
             'model': request.body.model,
