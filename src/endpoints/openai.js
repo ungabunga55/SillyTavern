@@ -471,6 +471,62 @@ router.post('/chutes/generate-voice', async (request, response) => {
     }
 });
 
+// Fish Audio TTS
+router.post('/fish-audio/generate-voice', async (request, response) => {
+    try {
+        const key = readSecret(request.user.directories, SECRET_KEYS.FISH_AUDIO);
+
+        if (!key) {
+            console.warn('No Fish Audio key found');
+            return response.sendStatus(400);
+        }
+
+        const text = String(request.body.input || '').trim();
+        const referenceId = String(request.body.voice || '').trim();
+        const model = String(request.body.model || 's2.1-pro-free').trim();
+
+        if (!text) {
+            return response.status(400).send('Text is required');
+        }
+
+        if (!referenceId) {
+            return response.status(400).send('Fish Audio voice ID is required');
+        }
+
+        const requestBody = {
+            text,
+            reference_id: referenceId,
+            format: 'mp3',
+        };
+
+        console.debug('Fish Audio TTS request', { model, reference_id: referenceId });
+
+        const result = await fetch('https://api.fish.audio/v1/tts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${key}`,
+                model,
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!result.ok) {
+            const text = await result.text();
+            console.warn('Fish Audio TTS request failed', result.statusText, text);
+            return response.status(500).send(text);
+        }
+
+        const contentType = result.headers.get('content-type') || 'audio/mpeg';
+        const buffer = await result.arrayBuffer();
+        response.setHeader('Content-Type', contentType);
+        return response.send(Buffer.from(buffer));
+    } catch (error) {
+        console.error('Fish Audio TTS generation failed', error);
+        response.status(500).send('Internal server error');
+    }
+});
+
 router.post('/chutes/models/embedding', async (request, response) => {
     try {
         const key = readSecret(request.user.directories, SECRET_KEYS.CHUTES);

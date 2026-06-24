@@ -47,6 +47,7 @@ export const SECRET_KEYS = {
     TAVILY: 'api_key_tavily',
     CHUTES: 'api_key_chutes',
     ELECTRONHUB: 'api_key_electronhub',
+    FISH_AUDIO: 'api_key_fish_audio',
     NANOGPT: 'api_key_nanogpt',
     BFL: 'api_key_bfl',
     COMFY_RUNPOD: 'api_key_comfy_runpod',
