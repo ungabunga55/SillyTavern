@@ -61,6 +61,8 @@ import {
     isDataURL,
     isUuid,
     isValidUrl,
+    localizePagination,
+    PAGINATION_TEMPLATE,
     parseJsonFile,
     resetScrollHeight,
     stringFormat,
@@ -80,7 +82,14 @@ import { t } from './i18n.js';
 import { ToolManager } from './tool-calling.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { COMETAPI_IGNORE_PATTERNS, IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
-import { syncNanoGptProvidersForModel, syncOpenRouterProvidersForModel, updateNanoGptProvidersWarning, updateOpenRouterProvidersWarning } from './textgen-models.js';
+import {
+    fetchFeatherlessNew,
+    fetchFeatherlessStats,
+    syncNanoGptProvidersForModel,
+    syncOpenRouterProvidersForModel,
+    updateNanoGptProvidersWarning,
+    updateOpenRouterProvidersWarning,
+} from './textgen-models.js';
 
 export {
     openai_messages_count,
@@ -199,6 +208,7 @@ export const chat_completion_sources = {
     SILICONFLOW: 'siliconflow',
     WORKERS_AI: 'workers_ai',
     MINIMAX: 'minimax',
+    FEATHERLESS: 'featherless',
 };
 
 const character_names_behavior = {
@@ -412,6 +422,7 @@ export const settingsToUpdate = {
     minimax_model: ['#model_minimax_select', 'minimax_model', false, true],
     minimax_endpoint: ['#minimax_endpoint', 'minimax_endpoint', false, true],
     electronhub_model: ['#model_electronhub_select', 'electronhub_model', false, true],
+    featherless_model: ['#model_featherless_chat_select', 'featherless_model', false, true],
     nanogpt_model: ['#model_nanogpt_select', 'nanogpt_model', false, true],
     nanogpt_provider: ['#nanogpt_provider', 'nanogpt_provider', false, true],
     nanogpt_payg_override: ['#nanogpt_payg_override', 'nanogpt_payg_override', true, true],
@@ -531,6 +542,7 @@ const default_settings = {
     minimax_model: 'MiniMax-M2.7',
     minimax_endpoint: MINIMAX_ENDPOINT.GLOBAL,
     electronhub_model: 'gpt-4o-mini',
+    featherless_model: 'TheDrummer/Rocinante-X-12B-v1',
     nanogpt_model: 'gpt-4o-mini',
     nanogpt_provider: '',
     nanogpt_payg_override: false,
@@ -1845,6 +1857,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.zai_model;
         case chat_completion_sources.WORKERS_AI:
             return settings.workers_ai_model;
+        case chat_completion_sources.FEATHERLESS:
+            return settings.featherless_model;
         default:
             console.error(`Unknown chat completion source: ${source}`);
             return '';
@@ -2246,6 +2260,10 @@ function saveModelList(data) {
         $('#model_chutes_select').val(oai_settings.chutes_model).trigger('change');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.FEATHERLESS) {
+        loadFeatherlessChatModels(model_list);
+    }
+
     if (oai_settings.chat_completion_source == chat_completion_sources.NANOGPT) {
         model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.NANOGPT);
         $('#model_nanogpt_select').empty();
@@ -2489,6 +2507,208 @@ function saveModelList(data) {
         }
 
         $('#model_minimax_select').val(oai_settings.minimax_model).trigger('change');
+    }
+}
+
+let featherlessChatCurrentPage = 1;
+
+/**
+ * Commits a Featherless model selection made from the card browser.
+ * @param {string} modelId Selected model id
+ */
+function onFeatherlessChatModelSelect(modelId) {
+    oai_settings.featherless_model = modelId;
+    $('#model_featherless_chat_select').val(modelId).trigger('change');
+}
+
+/**
+ * Renders the Featherless Chat Completion model browser.
+ * @param {object[]} data Array of Featherless model objects from /v1/models
+ */
+function loadFeatherlessChatModels(data) {
+    const searchBar = document.getElementById('featherless_chat_model_search_bar');
+    const modelCardBlock = document.getElementById('featherless_chat_model_card_block');
+    const paginationContainer = $('#featherless_chat_model_pagination_container');
+    const sortOrderSelect = document.getElementById('featherless_chat_model_sort_order');
+    const classSelect = document.getElementById('featherless_chat_class_selection');
+    const categoriesSelect = document.getElementById('featherless_chat_category_selection');
+    const storageKey = 'FeatherlessChatModels_PerPage';
+
+    if (!Array.isArray(data)) {
+        console.error('Invalid Featherless models data', data);
+        return;
+    }
+
+    const originalModels = data;
+
+    if (!data.find(x => x.id === oai_settings.featherless_model)) {
+        oai_settings.featherless_model = data[0]?.id || '';
+    }
+
+    $('#model_featherless_chat_select').empty();
+    for (const model of data) {
+        $('#model_featherless_chat_select').append($('<option>', { value: model.id, text: model.id }));
+    }
+    $('#model_featherless_chat_select').val(oai_settings.featherless_model).trigger('change');
+
+    populateClassSelection(data);
+
+    const perPage = Number(accountStorage.getItem(storageKey)) || 10;
+
+    applyFiltersAndSort();
+
+    function setupPagination(models, perPage, pageNumber = featherlessChatCurrentPage) {
+        paginationContainer.pagination({
+            dataSource: models,
+            pageSize: perPage,
+            pageNumber: pageNumber,
+            sizeChangerOptions: [6, 10, 26, 50, 100, 250, 500, 1000],
+            pageRange: 1,
+            showPageNumbers: true,
+            showSizeChanger: false,
+            prevText: '<',
+            nextText: '>',
+            formatNavigator: PAGINATION_TEMPLATE,
+            showNavigator: true,
+            callback: function (modelsOnPage, pagination) {
+                if (!modelCardBlock) {
+                    return;
+                }
+
+                modelCardBlock.innerHTML = '';
+
+                modelsOnPage.forEach(model => {
+                    const card = document.createElement('div');
+                    card.classList.add('model-card');
+
+                    const modelNameContainer = document.createElement('div');
+                    modelNameContainer.classList.add('model-name-container');
+
+                    const modelTitle = document.createElement('div');
+                    modelTitle.classList.add('model-title');
+                    modelTitle.textContent = model.id.replace(/_/g, '_\u200B');
+                    modelNameContainer.appendChild(modelTitle);
+
+                    const detailsContainer = document.createElement('div');
+                    detailsContainer.classList.add('details-container');
+
+                    const modelClassDiv = document.createElement('div');
+                    modelClassDiv.classList.add('model-class');
+                    modelClassDiv.textContent = t`Class` + `: ${model.model_class || 'N/A'}`;
+
+                    const contextLengthDiv = document.createElement('div');
+                    contextLengthDiv.classList.add('model-context-length');
+                    contextLengthDiv.textContent = t`Context Length` + `: ${model.context_length}`;
+
+                    const dateAddedDiv = document.createElement('div');
+                    dateAddedDiv.classList.add('model-date-added');
+                    dateAddedDiv.textContent = t`Added On` + `: ${new Date(model.created * 1000).toLocaleDateString()}`;
+
+                    detailsContainer.appendChild(modelClassDiv);
+                    detailsContainer.appendChild(contextLengthDiv);
+                    detailsContainer.appendChild(dateAddedDiv);
+
+                    card.appendChild(modelNameContainer);
+                    card.appendChild(detailsContainer);
+
+                    modelCardBlock.appendChild(card);
+
+                    if (model.id === oai_settings.featherless_model) {
+                        card.classList.add('selected');
+                    }
+
+                    card.addEventListener('click', function () {
+                        modelCardBlock.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
+                        card.classList.add('selected');
+                        onFeatherlessChatModelSelect(model.id);
+                    });
+                });
+
+                featherlessChatCurrentPage = pagination.pageNumber;
+                localizePagination(paginationContainer);
+            },
+            afterSizeSelectorChange: function (e) {
+                const newPerPage = e.target.value;
+                accountStorage.setItem(storageKey, newPerPage);
+                setupPagination(models, Number(newPerPage), featherlessChatCurrentPage);
+            },
+        });
+    }
+
+    $(searchBar).off('input').on('input', applyFiltersAndSort);
+    $(sortOrderSelect).off('change').on('change', applyFiltersAndSort);
+    $(classSelect).off('change').on('change', applyFiltersAndSort);
+    $(categoriesSelect).off('change').on('change', applyFiltersAndSort);
+
+    function populateClassSelection(models) {
+        $(classSelect).find('option:not([value=""])').remove();
+        const uniqueClasses = [...new Set(models.map(model => model.model_class).filter(Boolean))];
+        uniqueClasses.sort((a, b) => a.localeCompare(b));
+        uniqueClasses.forEach(className => {
+            const option = document.createElement('option');
+            option.value = className;
+            option.textContent = className;
+            classSelect?.appendChild(option);
+        });
+    }
+
+    async function applyFiltersAndSort() {
+        if (!(searchBar instanceof HTMLInputElement) ||
+            !(sortOrderSelect instanceof HTMLSelectElement) ||
+            !(classSelect instanceof HTMLSelectElement) ||
+            !(categoriesSelect instanceof HTMLSelectElement)) {
+            return;
+        }
+
+        const searchQuery = searchBar.value.toLowerCase();
+        const selectedSortOrder = sortOrderSelect.value;
+        const selectedClass = classSelect.value;
+        const selectedCategory = categoriesSelect.value;
+        let featherlessTop = [];
+        let featherlessNew = [];
+
+        if (selectedCategory === 'Top') {
+            featherlessTop = await fetchFeatherlessStats();
+        }
+        const featherlessIds = featherlessTop.map(stat => stat.id);
+
+        if (selectedCategory === 'New') {
+            featherlessNew = await fetchFeatherlessNew();
+        }
+        const featherlessNewIds = featherlessNew.map(stat => stat.id);
+
+        let filteredModels = originalModels.filter(model => {
+            const matchesSearch = model.id.toLowerCase().includes(searchQuery);
+            const matchesClass = selectedClass ? model.model_class === selectedClass : true;
+            const matchesTop = featherlessIds.includes(model.id);
+            const matchesNew = featherlessNewIds.includes(model.id);
+
+            if (selectedCategory === 'All') {
+                return matchesSearch && matchesClass;
+            } else if (selectedCategory === 'Top') {
+                return matchesSearch && matchesClass && matchesTop;
+            } else if (selectedCategory === 'New') {
+                return matchesSearch && matchesClass && matchesNew;
+            } else {
+                return matchesSearch && matchesClass;
+            }
+        });
+
+        if (selectedSortOrder === 'asc') {
+            filteredModels.sort((a, b) => a.id.localeCompare(b.id));
+        } else if (selectedSortOrder === 'desc') {
+            filteredModels.sort((a, b) => b.id.localeCompare(a.id));
+        } else if (selectedSortOrder === 'date_asc') {
+            filteredModels.sort((a, b) => a.created - b.created);
+        } else if (selectedSortOrder === 'date_desc') {
+            filteredModels.sort((a, b) => b.created - a.created);
+        }
+
+        const currentPerPage = Number(accountStorage.getItem(storageKey)) || perPage;
+        const currentModelIndex = filteredModels.findIndex(x => x.id === oai_settings.featherless_model);
+        featherlessChatCurrentPage = currentModelIndex >= 0 ? Math.floor(currentModelIndex / currentPerPage) + 1 : 1;
+
+        setupPagination(filteredModels, currentPerPage, featherlessChatCurrentPage);
     }
 }
 
@@ -3134,6 +3354,16 @@ export async function createGenerationParameters(settings, model, type, messages
         if (Number.isFinite(generate_data.temperature)) {
             generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
         }
+    }
+
+    if (settings.chat_completion_source === chat_completion_sources.FEATHERLESS) {
+        generate_data.top_k = settings.top_k_openai > 0 ? Number(settings.top_k_openai) : undefined;
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
+        generate_data.frequency_penalty = Number(settings.freq_pen_openai);
+        generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
+        generate_data.top_p = clamp(Number(settings.top_p_openai), 0.001, 1.0);
+        generate_data.stop = getCustomStoppingStrings();
+        generate_data.min_p = clamp(Number(settings.min_p_openai), 0, 1.0);
     }
 
     if (settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
@@ -5678,6 +5908,27 @@ function getNanoGptMaxContext(model, isUnlocked) {
     return max_128k;
 }
 
+/**
+ * Get the maximum context size for the Featherless model
+ * @param {string} model Model identifier
+ * @param {boolean} isUnlocked Whether context limits are unlocked
+ * @returns {number} Maximum context size in tokens
+ */
+function getFeatherlessMaxContext(model, isUnlocked) {
+    if (isUnlocked) {
+        return unlocked_max;
+    }
+
+    if (Array.isArray(model_list)) {
+        const modelInfo = model_list.find(m => m.id === model);
+        if (modelInfo?.context_length) {
+            return modelInfo.context_length;
+        }
+    }
+
+    return max_128k;
+}
+
 async function onModelChange() {
     biasCache = undefined;
     let value = String($(this).val() || '');
@@ -5791,6 +6042,15 @@ async function onModelChange() {
         }
         console.log('ElectronHub model changed to', value);
         oai_settings.electronhub_model = value;
+    }
+
+    if ($(this).is('#model_featherless_chat_select')) {
+        if (!value || !hasModelsLoaded) {
+            console.debug('Null Featherless model selected. Ignoring.');
+            return;
+        }
+        console.log('Featherless model changed to', value);
+        oai_settings.featherless_model = value;
     }
 
     if ($(this).is('#model_chutes_select')) {
@@ -5934,6 +6194,15 @@ async function onModelChange() {
         }
 
         calculateOpenRouterCost();
+    }
+
+    if (oai_settings.chat_completion_source == chat_completion_sources.FEATHERLESS) {
+        const maxContext = getFeatherlessMaxContext(oai_settings.featherless_model, oai_settings.max_context_unlocked);
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) {
@@ -6272,6 +6541,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.POLLINATIONS]: { key: SECRET_KEYS.POLLINATIONS, selector: '#api_key_pollinations', proxy: false, keyless: oai_settings.pollinations_endpoint === POLLINATIONS_ENDPOINT.ANONYMOUS },
         [chat_completion_sources.WORKERS_AI]: { key: SECRET_KEYS.WORKERS_AI, selector: '#api_key_workers_ai', proxy: false },
         [chat_completion_sources.MINIMAX]: { key: SECRET_KEYS.MINIMAX, selector: '#api_key_minimax', proxy: true },
+        [chat_completion_sources.FEATHERLESS]: { key: SECRET_KEYS.FEATHERLESS, selector: '#api_key_featherless', proxy: false },
     };
 
     // Vertex AI Express version - use API key
@@ -6366,6 +6636,8 @@ function toggleChatCompletionForms() {
         $('#model_zai_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.WORKERS_AI) {
         $('#model_workers_ai_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.FEATHERLESS) {
+        $('#model_featherless_chat_select').trigger('change');
     }
 
     $('[data-source]').each(function () {
@@ -6986,6 +7258,24 @@ export function initOpenAI() {
 
     $('#test_api_button').on('click', testApiConnection);
 
+    const featherlessChatCardBlock = document.getElementById('featherless_chat_model_card_block');
+    if (featherlessChatCardBlock) {
+        featherlessChatCardBlock.classList.add('list-view');
+        let isGridView = false;
+        document.getElementById('featherless_chat_model_grid_toggle')?.addEventListener('click', function () {
+            if (isGridView) {
+                featherlessChatCardBlock.classList.remove('grid-view');
+                featherlessChatCardBlock.classList.add('list-view');
+                this.title = 'Toggle to grid view';
+            } else {
+                featherlessChatCardBlock.classList.remove('list-view');
+                featherlessChatCardBlock.classList.add('grid-view');
+                this.title = 'Toggle to list view';
+            }
+            isGridView = !isGridView;
+        });
+    }
+
     $('#temp_openai').on('input', function () {
         oai_settings.temp_openai = Number($(this).val());
         $('#temp_counter_openai').val(Number($(this).val()).toFixed(2));
@@ -7582,6 +7872,7 @@ export function initOpenAI() {
     $('#model_siliconflow_select').on('change', onModelChange);
     $('#model_minimax_select').on('change', onModelChange);
     $('#model_electronhub_select').on('change', onModelChange);
+    $('#model_featherless_chat_select').on('change', onModelChange);
     $('#model_nanogpt_select').on('change', onModelChange);
     $('#model_deepseek_select').on('change', onModelChange);
     $('#model_aimlapi_select').on('change', onModelChange);

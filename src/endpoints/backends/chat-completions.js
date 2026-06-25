@@ -9,6 +9,7 @@ import {
     AIMLAPI_HEADERS,
     AZURE_OPENAI_KEYS,
     CHAT_COMPLETION_SOURCES,
+    FEATHERLESS_HEADERS,
     GEMINI_SAFETY,
     NANOGPT_REASONING_EFFORT_MAP,
     OPENAI_FIXED_REASONING_EFFORT,
@@ -79,6 +80,7 @@ const API_VERTEX_AI = 'https://us-central1-aiplatform.googleapis.com';
 const API_AI21 = 'https://api.ai21.com/studio/v1';
 const API_CHUTES = 'https://llm.chutes.ai/v1';
 const API_ELECTRONHUB = 'https://api.electronhub.ai/v1';
+const API_FEATHERLESS = 'https://api.featherless.ai/v1';
 const API_NANOGPT = 'https://nano-gpt.com/api/v1';
 const API_DEEPSEEK = 'https://api.deepseek.com/beta';
 const API_XAI = 'https://api.x.ai/v1';
@@ -2446,6 +2448,10 @@ router.post('/status', async function (request, statusResponse) {
                 console.error('Error fetching Cloudflare Workers AI models:', error);
                 return statusResponse.status(500).send({ error: true });
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FEATHERLESS) {
+            apiUrl = API_FEATHERLESS;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.FEATHERLESS, request.body.secret_id);
+            headers = { ...FEATHERLESS_HEADERS };
         } else {
             console.warn('This chat completion source is not supported yet.');
             return statusResponse.status(400).send({ error: true });
@@ -2886,6 +2892,14 @@ router.post('/generate', async function (request, response) {
                     'ttl': cacheTTL,
                 };
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FEATHERLESS) {
+            apiUrl = API_FEATHERLESS;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.FEATHERLESS, request.body.secret_id);
+            headers = { ...FEATHERLESS_HEADERS };
+            bodyParams = {
+                min_p: request.body.min_p,
+                repetition_penalty: request.body.repetition_penalty,
+            };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS) {
             const isAnonymous = request.body.pollinations_endpoint === POLLINATIONS_ENDPOINT.ANONYMOUS;
             apiUrl = isAnonymous ? API_POLLINATIONS_ANON : API_POLLINATIONS;

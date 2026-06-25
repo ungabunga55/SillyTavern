@@ -172,7 +172,7 @@ const INPUT_MAP = {
     [SECRET_KEYS.COHERE]: '#api_key_cohere',
     [SECRET_KEYS.PERPLEXITY]: '#api_key_perplexity',
     [SECRET_KEYS.GROQ]: '#api_key_groq',
-    [SECRET_KEYS.FEATHERLESS]: '#api_key_featherless',
+    [SECRET_KEYS.FEATHERLESS]: '.api_key_featherless',
     [SECRET_KEYS.HUGGINGFACE]: '#api_key_huggingface',
     [SECRET_KEYS.CHUTES]: '#api_key_chutes',
     [SECRET_KEYS.ELECTRONHUB]: '#api_key_electronhub',

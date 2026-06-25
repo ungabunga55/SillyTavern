@@ -867,6 +867,7 @@ export async function loadFeatherlessModels(data) {
 
     // Function to populate class selection dropdown
     function populateClassSelection(models) {
+        $(classSelect).find('option:not([value=""])').remove();
         const uniqueClasses = [...new Set(models.map(model => model.model_class).filter(Boolean))];  // Get unique class names
         uniqueClasses.sort((a, b) => a.localeCompare(b));
         uniqueClasses.forEach(className => {
@@ -929,10 +930,11 @@ export async function loadFeatherlessModels(data) {
             filteredModels.sort((a, b) => b.created - a.created);
         }
 
+        const currentPerPage = Number(accountStorage.getItem(storageKey)) || perPage;
         const currentModelIndex = filteredModels.findIndex(x => x.id === textgen_settings.featherless_model);
-        featherlessCurrentPage = currentModelIndex >= 0 ? (currentModelIndex / perPage) + 1 : 1;
+        featherlessCurrentPage = currentModelIndex >= 0 ? Math.floor(currentModelIndex / currentPerPage) + 1 : 1;
 
-        setupPagination(filteredModels, Number(accountStorage.getItem(storageKey)) || perPage, featherlessCurrentPage);
+        setupPagination(filteredModels, currentPerPage, featherlessCurrentPage);
     }
 
     // Required to keep the /model command function
@@ -946,13 +948,13 @@ export async function loadFeatherlessModels(data) {
     }
 }
 
-async function fetchFeatherlessStats() {
+export async function fetchFeatherlessStats() {
     const response = await fetch('https://api.featherless.ai/feather/popular');
     const data = await response.json();
     return data.popular;
 }
 
-async function fetchFeatherlessNew() {
+export async function fetchFeatherlessNew() {
     const response = await fetch('https://api.featherless.ai/feather/models?sort=-created_at&perPage=20');
     const data = await response.json();
     return data.items;
