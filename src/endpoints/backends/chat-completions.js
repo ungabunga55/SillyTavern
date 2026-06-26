@@ -89,6 +89,15 @@ const API_POLLINATIONS = 'https://gen.pollinations.ai/v1';
 const API_POLLINATIONS_ANON = 'https://text.pollinations.ai/v1';
 const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
+const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/glm-5p2';
+const FIREWORKS_LEGACY_DEFAULT_MODEL = 'accounts/fireworks/models/kimi-k2-instruct';
+const FIREWORKS_SERVERLESS_MODELS = [
+    { id: 'accounts/fireworks/models/glm-5p2', supports_chat: true },
+    { id: 'accounts/fireworks/models/deepseek-v4-pro', supports_chat: true },
+    { id: 'accounts/fireworks/models/minimax-m2p7', supports_chat: true },
+    { id: 'accounts/fireworks/models/glm-5p1', supports_chat: true },
+    { id: 'accounts/fireworks/models/deepseek-v4-flash', supports_chat: true },
+];
 const API_COMETAPI = 'https://api.cometapi.com/v1';
 const API_ZAI_COMMON = 'https://api.z.ai/api/paas/v4';
 const API_ZAI_CODING = 'https://api.z.ai/api/coding/paas/v4';
@@ -2478,6 +2487,11 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = API_FIREWORKS;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS, request.body.secret_id);
             headers = {};
+            if (!apiKey) {
+                console.warn('Fireworks AI API key is missing.');
+                return statusResponse.status(400).send({ error: true });
+            }
+            return statusResponse.send({ data: FIREWORKS_SERVERLESS_MODELS });
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MAKERSUITE) {
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE, request.body.secret_id);
             apiUrl = trimTrailingSlash(request.body.reverse_proxy || API_MAKERSUITE);
@@ -3050,6 +3064,9 @@ router.post('/generate', async function (request, response) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS, request.body.secret_id);
             headers = {};
             bodyParams = {};
+            if (request.body.model === FIREWORKS_LEGACY_DEFAULT_MODEL) {
+                request.body.model = FIREWORKS_DEFAULT_MODEL;
+            }
             if (request.body.json_schema) {
                 bodyParams['response_format'] = {
                     type: 'json_schema',
