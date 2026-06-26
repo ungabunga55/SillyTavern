@@ -97,6 +97,10 @@ const FIREWORKS_SERVERLESS_MODELS = [
     { id: 'accounts/fireworks/models/minimax-m2p7', supports_chat: true },
     { id: 'accounts/fireworks/models/glm-5p1', supports_chat: true },
     { id: 'accounts/fireworks/models/deepseek-v4-flash', supports_chat: true },
+    { id: 'accounts/fireworks/models/kimi-k2p7-code', supports_chat: true },
+    { id: 'accounts/fireworks/models/qwen3p7-plus', supports_chat: true },
+    { id: 'accounts/fireworks/models/nemotron-3-ultra-nvfp4', supports_chat: true },
+    { id: 'accounts/fireworks/models/minimax-m3', supports_chat: true },
 ];
 const API_COMETAPI = 'https://api.cometapi.com/v1';
 const API_ZAI_COMMON = 'https://api.z.ai/api/paas/v4';
@@ -368,6 +372,153 @@ function getAtlascloudModelFamily(modelId) {
     if (modelId.startsWith('qwen/')) return 'qwen';
     if (modelId.startsWith('bytedance/')) return 'doubao';
     return 'generic';
+}
+
+/**
+ * Applies direct-provider-derived request rules for Fireworks serverless models.
+ * @param {Record<string, any>} requestBody Request payload to mutate
+ * @param {express.Request} request Express request
+ */
+function sanitizeFireworksRequestBody(requestBody, request) {
+    const modelId = String(request.body.model || '').toLowerCase();
+    const nativeModel = modelId.split('/').pop() || modelId;
+    const family = getFireworksModelFamily(modelId);
+    const includeReasoning = Boolean(request.body.include_reasoning);
+
+    function getReasoningEffort() {
+        const effort = String(request.body.reasoning_effort || 'auto');
+        if (!includeReasoning || effort === 'auto') {
+            return undefined;
+        }
+
+        switch (family) {
+            case 'zai':
+                return nativeModel === 'glm-5p2' ? (effort === 'min' ? 'minimal' : effort) : undefined;
+            case 'deepseek':
+                return effort === 'max' ? 'max' : 'high';
+            default:
+                return undefined;
+        }
+    }
+
+    delete requestBody.prompt;
+    delete requestBody.max_completion_tokens;
+    delete requestBody.top_k;
+    delete requestBody.repetition_penalty;
+    delete requestBody.reasoning_effort;
+
+    if (Array.isArray(requestBody.stop) && requestBody.stop.length === 0) {
+        delete requestBody.stop;
+    }
+
+    if (family === 'zai' || family === 'deepseek' || family === 'moonshot') {
+        const thinkingEnabled = family === 'moonshot'
+            ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning
+            : includeReasoning;
+        requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
+
+        const reasoningEffort = getReasoningEffort();
+        if (reasoningEffort) {
+            requestBody.reasoning_effort = reasoningEffort;
+        }
+
+        if (family === 'moonshot') {
+            normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled);
+        }
+    } else {
+        delete requestBody.thinking;
+    }
+
+    if (family === 'zai') {
+        requestBody.top_p = requestBody.top_p || 0.01;
+        delete requestBody.frequency_penalty;
+        delete requestBody.presence_penalty;
+        if (Array.isArray(requestBody.stop) && requestBody.stop.length > 1) {
+            requestBody.stop = requestBody.stop.slice(0, 1);
+        }
+    }
+
+    if (family === 'deepseek') {
+        requestBody.top_p = requestBody.top_p || Number.EPSILON;
+        if (Array.isArray(requestBody.tools)) {
+            requestBody.tools.forEach(tool => {
+                const required = tool?.function?.parameters?.required;
+                if (Array.isArray(required) && required.length === 0) {
+                    delete tool.function.parameters.required;
+                }
+            });
+        }
+        if (request.body.json_schema && Array.isArray(requestBody.messages)) {
+            requestBody.response_format = { type: 'json_object' };
+            requestBody.messages.push({
+                role: 'user',
+                content: `JSON schema for the response:\n${JSON.stringify(request.body.json_schema.value, null, 4)}`,
+            });
+        }
+    }
+
+    if (family === 'moonshot') {
+        delete requestBody.top_k;
+        delete requestBody.repetition_penalty;
+
+        if (isFireworksKimiFixedParameterModel(nativeModel)) {
+            delete requestBody.temperature;
+            delete requestBody.frequency_penalty;
+            delete requestBody.presence_penalty;
+            delete requestBody.top_p;
+            delete requestBody.n;
+        }
+
+        if (Array.isArray(requestBody.tools)
+            && requestBody.thinking?.type === 'enabled'
+            && !['auto', 'none', undefined].includes(requestBody.tool_choice)) {
+            requestBody.tool_choice = 'auto';
+        }
+    }
+
+    if (family === 'minimax') {
+        requestBody.messages = postProcessPrompt(requestBody.messages, PROMPT_PROCESSING_TYPE.MERGE_TOOLS, getPromptNames(request));
+        delete requestBody.frequency_penalty;
+        delete requestBody.presence_penalty;
+        delete requestBody.logit_bias;
+        delete requestBody.seed;
+        delete requestBody.n;
+        if (Number.isFinite(Number(requestBody.temperature))) {
+            requestBody.temperature = Math.min(Math.max(Number(requestBody.temperature), Number.EPSILON), 1.0);
+        }
+    }
+}
+
+/**
+ * Gets the closest direct provider family for a Fireworks model id.
+ * @param {string} modelId Lower-cased Fireworks model id
+ * @returns {string} Provider family name
+ */
+function getFireworksModelFamily(modelId) {
+    const nativeModel = modelId.split('/').pop() || modelId;
+    if (/^glm-5p[12]$/.test(nativeModel)) return 'zai';
+    if (/^deepseek-v4-(pro|flash)$/.test(nativeModel)) return 'deepseek';
+    if (nativeModel === 'kimi-k2p7-code') return 'moonshot';
+    if (/^minimax-(m2p7|m3)$/.test(nativeModel)) return 'minimax';
+    return 'generic';
+}
+
+/**
+ * Checks if a Fireworks Kimi model maps to a Moonshot fixed-parameter model.
+ * @param {string} nativeModel Fireworks native model id
+ * @returns {boolean} True if fixed sampler values are required
+ */
+function isFireworksKimiFixedParameterModel(nativeModel) {
+    return nativeModel === 'kimi-k2p7-code';
+}
+
+/**
+ * Checks if a Fireworks Kimi model maps to a Moonshot always-on thinking model.
+ * @param {string} nativeModel Fireworks native model id
+ * @returns {boolean} True if thinking should not be disabled
+ */
+function isFireworksKimiAlwaysOnThinkingModel(nativeModel) {
+    return nativeModel === 'kimi-k2p7-code';
 }
 
 /**
@@ -3314,6 +3465,10 @@ router.post('/generate', async function (request, response) {
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ATLASCLOUD) {
             sanitizeAtlascloudRequestBody(requestBody, request);
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
+            sanitizeFireworksRequestBody(requestBody, request);
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {

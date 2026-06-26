@@ -3371,6 +3371,53 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.siliconflow_endpoint = settings.siliconflow_endpoint || SILICONFLOW_ENDPOINT.GLOBAL;
     }
 
+    if (settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
+        const fireworksModel = String(model || '').toLowerCase();
+        const fireworksNativeModel = fireworksModel.split('/').pop() || fireworksModel;
+        const isFireworksZaiModel = /^glm-5p[12]$/.test(fireworksNativeModel);
+        const isFireworksDeepSeekModel = /^deepseek-v4-(pro|flash)$/.test(fireworksNativeModel);
+        const isFireworksMoonshotModel = fireworksNativeModel === 'kimi-k2p7-code';
+        const isFireworksMiniMaxModel = /^minimax-(m2p7|m3)$/.test(fireworksNativeModel);
+
+        delete generate_data.top_k;
+        delete generate_data.repetition_penalty;
+        delete generate_data.max_completion_tokens;
+
+        if (isFireworksZaiModel) {
+            generate_data.top_p = generate_data.top_p || 0.01;
+            delete generate_data.frequency_penalty;
+            delete generate_data.presence_penalty;
+            generate_data.stop = getCustomStoppingStrings(1);
+        }
+
+        if (isFireworksDeepSeekModel) {
+            generate_data.top_p = generate_data.top_p || Number.EPSILON;
+        }
+
+        if (isFireworksMoonshotModel) {
+            generate_data.include_reasoning = true;
+            delete generate_data.temperature;
+            delete generate_data.frequency_penalty;
+            delete generate_data.presence_penalty;
+            delete generate_data.top_p;
+            delete generate_data.top_k;
+            delete generate_data.repetition_penalty;
+            delete generate_data.n;
+        }
+
+        if (isFireworksMiniMaxModel) {
+            delete generate_data.frequency_penalty;
+            delete generate_data.presence_penalty;
+            delete generate_data.logit_bias;
+            delete generate_data.seed;
+            delete generate_data.n;
+            delete generate_data.reasoning_effort;
+            if (Number.isFinite(generate_data.temperature)) {
+                generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
+            }
+        }
+    }
+
     if (settings.chat_completion_source === chat_completion_sources.ATLASCLOUD) {
         const atlascloudModel = String(model || '').toLowerCase();
         const atlascloudNativeModel = atlascloudModel.includes('/') ? atlascloudModel.split('/').slice(1).join('/') : atlascloudModel;
@@ -3877,7 +3924,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -5049,7 +5096,7 @@ function setContinuePostfixControls() {
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
-    $('#openai_reasoning_effort').prop('disabled', oai_settings.chat_completion_source === chat_completion_sources.ATLASCLOUD && !isEnabled);
+    $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
 }
 
