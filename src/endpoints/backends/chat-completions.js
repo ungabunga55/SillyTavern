@@ -94,6 +94,7 @@ const API_ZAI_COMMON = 'https://api.z.ai/api/paas/v4';
 const API_ZAI_CODING = 'https://api.z.ai/api/coding/paas/v4';
 const API_SILICONFLOW = 'https://api.siliconflow.com/v1';
 const API_SILICONFLOW_CN = 'https://api.siliconflow.cn/v1';
+const API_ATLASCLOUD = 'https://api.atlascloud.ai/v1';
 const API_MINIMAX = 'https://api.minimax.io/v1';
 const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
@@ -158,6 +159,206 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
  */
 function removeUndefinedValues(object) {
     return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Applies Atlascloud's stricter OpenAI-compatible request schema and mirrors
+ * model-family rules used by the native provider integrations where possible.
+ * @param {Record<string, any>} requestBody Request payload to mutate
+ * @param {express.Request} request Express request
+ */
+function sanitizeAtlascloudRequestBody(requestBody, request) {
+    const model = String(request.body.model || '');
+    const modelId = model.toLowerCase();
+    const nativeModel = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
+    const family = getAtlascloudModelFamily(modelId);
+    const includeReasoning = Boolean(request.body.include_reasoning);
+
+    function getReasoningEffort() {
+        const effort = String(request.body.reasoning_effort || 'auto');
+        if (!includeReasoning || effort === 'auto') {
+            return undefined;
+        }
+
+        switch (family) {
+            case 'openai':
+                if (!OPENAI_REASONING_EFFORT_MODELS.includes(nativeModel)) {
+                    return undefined;
+                }
+                return OPENAI_FIXED_REASONING_EFFORT[nativeModel] ?? OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
+            case 'xai':
+                if (effort === 'min') {
+                    return 'none';
+                }
+                if (['xhigh', 'max'].includes(effort)) {
+                    return 'high';
+                }
+                return effort;
+            case 'deepseek':
+                return effort === 'max' ? 'max' : 'high';
+            case 'zai':
+                if (!/(?:^|\/)glm-5\.2(?:$|\b)/.test(modelId)) {
+                    return undefined;
+                }
+                return effort === 'min' ? 'minimal' : effort;
+            default:
+                return undefined;
+        }
+    }
+
+    delete requestBody.prompt;
+    delete requestBody.max_completion_tokens;
+    delete requestBody.presence_penalty;
+    delete requestBody.frequency_penalty;
+    delete requestBody.stop;
+    delete requestBody.logit_bias;
+    delete requestBody.seed;
+    delete requestBody.n;
+    delete requestBody.response_format;
+    delete requestBody.tools;
+    delete requestBody.tool_choice;
+    delete requestBody.thinking;
+    delete requestBody.reasoning_effort;
+
+    if (!Number.isFinite(Number(requestBody.top_k)) || Number(requestBody.top_k) <= 0) {
+        delete requestBody.top_k;
+    }
+
+    if (!Number.isFinite(Number(requestBody.repetition_penalty)) || Number(requestBody.repetition_penalty) === 1) {
+        delete requestBody.repetition_penalty;
+    }
+
+    if (!includeReasoning) {
+        requestBody.thinking = { type: 'disabled' };
+    } else {
+        requestBody.thinking = { type: 'enabled' };
+
+        const reasoningEffort = getReasoningEffort();
+        if (reasoningEffort) {
+            requestBody.reasoning_effort = reasoningEffort;
+        }
+    }
+
+    if (family === 'zai') {
+        requestBody.top_p = requestBody.top_p || 0.01;
+        delete requestBody.top_k;
+        delete requestBody.repetition_penalty;
+    }
+
+    if (family === 'deepseek') {
+        requestBody.top_p = requestBody.top_p || Number.EPSILON;
+    }
+
+    if (family === 'xai') {
+        requestBody.max_completion_tokens = request.body.max_completion_tokens ?? requestBody.max_tokens;
+        delete requestBody.max_tokens;
+        requestBody.top_p = requestBody.top_p || Number.EPSILON;
+    }
+
+    if (family === 'google') {
+        delete requestBody.repetition_penalty;
+    }
+
+    if (['openai', 'xai', 'deepseek', 'moonshot', 'minimax'].includes(family)) {
+        delete requestBody.top_k;
+        delete requestBody.repetition_penalty;
+    }
+
+    if (family === 'openai' && /^(o1|o3|o4)/.test(nativeModel)) {
+        requestBody.max_completion_tokens = request.body.max_completion_tokens ?? requestBody.max_tokens;
+        delete requestBody.max_tokens;
+        delete requestBody.temperature;
+        delete requestBody.top_p;
+        if (/^o1/.test(nativeModel) && Array.isArray(requestBody.messages)) {
+            requestBody.messages.forEach(message => {
+                if (message?.role === 'system') {
+                    message.role = 'user';
+                }
+            });
+        }
+    }
+
+    if (family === 'openai' && /gpt-5/.test(nativeModel)) {
+        requestBody.max_completion_tokens = request.body.max_completion_tokens ?? requestBody.max_tokens;
+        delete requestBody.max_tokens;
+
+        if (/gpt-5-chat-latest/.test(nativeModel)) {
+            // no-op: chat-latest keeps sampling parameters in the direct OpenAI path.
+        } else if (/gpt-5\.(1|2|3|4)/.test(nativeModel) && !/chat-latest/.test(nativeModel) && !requestBody.reasoning_effort) {
+            // Keep temperature/top_p, matching direct OpenAI chat-completions handling.
+        } else {
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+        }
+    }
+
+    if (family === 'moonshot' && isMoonshotKimiFixedParameterModel(nativeModel)) {
+        delete requestBody.temperature;
+        delete requestBody.top_p;
+    }
+
+    if (family === 'moonshot' && isMoonshotKimiAlwaysOnThinkingModel(nativeModel)) {
+        requestBody.thinking = { type: 'enabled' };
+    }
+
+    if (family === 'claude') {
+        const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(nativeModel);
+        const isLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(nativeModel);
+        const isAdaptiveModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(nativeModel) || (enableAdaptiveThinking && /^claude-(opus-4-6|sonnet-4-6)/.test(nativeModel));
+        const noSamplingModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5)/.test(nativeModel);
+
+        delete requestBody.repetition_penalty;
+
+        if (isLimitedSampling) {
+            if (requestBody.top_p < 1) {
+                delete requestBody.temperature;
+            } else {
+                delete requestBody.top_p;
+            }
+        }
+
+        if (noSamplingModel) {
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+            delete requestBody.top_k;
+        } else if (includeReasoning && isAdaptiveModel) {
+            delete requestBody.top_k;
+        } else if (includeReasoning && useThinking) {
+            if (Number(requestBody.max_tokens) <= 1024) {
+                requestBody.max_tokens = Number(requestBody.max_tokens) + 1024;
+            }
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+            delete requestBody.top_k;
+        }
+    }
+
+    if (family === 'minimax') {
+        requestBody.messages = postProcessPrompt(requestBody.messages, PROMPT_PROCESSING_TYPE.MERGE_TOOLS, getPromptNames(request));
+    }
+
+    if (family === 'minimax' && Number.isFinite(Number(requestBody.temperature))) {
+        requestBody.temperature = Math.min(Math.max(Number(requestBody.temperature), Number.EPSILON), 1.0);
+    }
+}
+
+/**
+ * Gets the closest direct provider family for an Atlascloud model id.
+ * @param {string} modelId Lower-cased Atlascloud model id
+ * @returns {string} Provider family name
+ */
+function getAtlascloudModelFamily(modelId) {
+    if (modelId.startsWith('openai/')) return 'openai';
+    if (modelId.startsWith('anthropic/claude-')) return 'claude';
+    if (modelId.startsWith('google/gemini-')) return 'google';
+    if (modelId.startsWith('xai/')) return 'xai';
+    if (modelId.startsWith('zai-org/') || /(?:^|\/)glm-/.test(modelId)) return 'zai';
+    if (modelId.startsWith('deepseek-ai/') || modelId.includes('deepseek')) return 'deepseek';
+    if (modelId.startsWith('moonshotai/') || modelId.includes('kimi')) return 'moonshot';
+    if (modelId.startsWith('minimaxai/') || modelId.includes('minimax')) return 'minimax';
+    if (modelId.startsWith('qwen/')) return 'qwen';
+    if (modelId.startsWith('bytedance/')) return 'doubao';
+    return 'generic';
 }
 
 /**
@@ -2399,6 +2600,10 @@ router.post('/status', async function (request, statusResponse) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.SILICONFLOW, request.body.secret_id);
             headers = {};
             queryParams = { type: 'text', sub_type: 'chat' };
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ATLASCLOUD) {
+            apiUrl = API_ATLASCLOUD;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.ATLASCLOUD, request.body.secret_id);
+            headers = {};
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MINIMAX) {
             const defaultApiUrl = request.body.minimax_endpoint === MINIMAX_ENDPOINT.CN
                 ? API_MINIMAX_CN : API_MINIMAX;
@@ -2969,6 +3174,14 @@ router.post('/generate', async function (request, response) {
             if (request.body.json_schema) {
                 setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ATLASCLOUD) {
+            apiUrl = API_ATLASCLOUD;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.ATLASCLOUD, request.body.secret_id);
+            headers = {};
+            bodyParams = {
+                top_k: request.body.top_k,
+                repetition_penalty: request.body.repetition_penalty,
+            };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.WORKERS_AI) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.WORKERS_AI, request.body.secret_id);
             const accountId = String(request.body.workers_ai_account_id || '').trim();
@@ -3080,6 +3293,10 @@ router.post('/generate', async function (request, response) {
             delete requestBody.frequency_penalty;
             delete requestBody.top_p;
             delete requestBody.n;
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ATLASCLOUD) {
+            sanitizeAtlascloudRequestBody(requestBody, request);
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {

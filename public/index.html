@@ -697,7 +697,7 @@
                                         </span>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,siliconflow,minimax,electronhub,chutes,nanogpt,deepseek,xai,pollinations,moonshot,fireworks,cometapi,azure_openai,zai,workers_ai,featherless">
+                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,siliconflow,atlascloud,minimax,electronhub,chutes,nanogpt,deepseek,xai,pollinations,moonshot,fireworks,cometapi,azure_openai,zai,workers_ai,featherless">
                                     <div class="range-block-title" data-i18n="Temperature">
                                         Temperature
                                     </div>
@@ -736,7 +736,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="claude,aimlapi,openrouter,makersuite,vertexai,cohere,perplexity,electronhub,chutes,nanogpt,workers_ai,featherless">
+                                <div class="range-block" data-source="claude,aimlapi,openrouter,makersuite,vertexai,cohere,perplexity,electronhub,chutes,nanogpt,atlascloud,workers_ai,featherless">
                                     <div class="range-block-title" data-i18n="Top K">
                                         Top K
                                     </div>
@@ -749,7 +749,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,siliconflow,minimax,electronhub,chutes,nanogpt,deepseek,xai,pollinations,moonshot,fireworks,cometapi,azure_openai,zai,workers_ai,featherless">
+                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,siliconflow,atlascloud,minimax,electronhub,chutes,nanogpt,deepseek,xai,pollinations,moonshot,fireworks,cometapi,azure_openai,zai,workers_ai,featherless">
                                     <div class="range-block-title" data-i18n="Top P">
                                         Top P
                                     </div>
@@ -762,7 +762,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openrouter,nanogpt,chutes,workers_ai,featherless">
+                                <div class="range-block" data-source="openrouter,nanogpt,chutes,atlascloud,workers_ai,featherless">
                                     <div class="range-block-title" data-i18n="Repetition Penalty">
                                         Repetition Penalty
                                     </div>
@@ -2174,7 +2174,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="deepseek,aimlapi,openrouter,custom,claude,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,workers_ai">
+                                    <div class="range-block" data-source="deepseek,aimlapi,openrouter,custom,claude,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,atlascloud,workers_ai">
                                         <label for="openai_show_thoughts" class="checkbox_label widthFreeExpand">
                                             <input id="openai_show_thoughts" type="checkbox" />
                                             <span data-i18n="Request model reasoning">Request model reasoning</span>
@@ -2183,15 +2183,15 @@
                                             <span data-i18n="Allows the model to return its thinking process.">
                                                 Allows the model to return its thinking process.
                                             </span>
-                                            <strong data-i18n="This setting enables or disables reasoning generation by the model." data-source="deepseek,zai,moonshot,mistralai">
+                                            <strong data-i18n="This setting enables or disables reasoning generation by the model." data-source="deepseek,zai,moonshot,mistralai,atlascloud">
                                                 This setting enables or disables reasoning generation by the model.
                                             </strong>
-                                            <strong data-i18n="This setting affects visibility only." data-source-mode="except" data-source="zai,moonshot,openrouter,deepseek,mistralai">
+                                            <strong data-i18n="This setting affects visibility only." data-source-mode="except" data-source="zai,moonshot,openrouter,deepseek,mistralai,atlascloud">
                                                 This setting affects visibility only.
                                             </strong>
                                         </div>
                                     </div>
-                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,xai,makersuite,vertexai,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,mistralai,zai">
+                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,xai,makersuite,vertexai,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,mistralai,zai,atlascloud">
                                         <div class="flex-container oneline-dropdown" title="Constrains effort on reasoning for reasoning models.&#10;Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response." data-i18n="[title]Constrains effort on reasoning for reasoning models.">
                                             <label for="openai_reasoning_effort">
                                                 <span data-i18n="Reasoning Effort">Reasoning Effort</span>
@@ -2217,6 +2217,9 @@
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="zai" data-i18n="GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.">
                                                 GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
+                                            </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="atlascloud">
+                                                Atlascloud maps reasoning to the selected model family where possible. Unchecking Request model reasoning sends <code>thinking: { type: 'disabled' }</code>; Auto sends <code>thinking: { type: 'enabled' }</code> without an effort override.
                                             </div>
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
                                                 Request model reasoning = Off with Reasoning Effort = Minimum disables reasoning entirely on models that support that, but can cause errors with some models.
@@ -2962,6 +2965,7 @@
                             <optgroup>
                                 <option value="ai21">AI21</option>
                                 <option value="aimlapi">AI/ML API</option>
+                                <option value="atlascloud">Atlascloud</option>
                                 <option value="azure_openai">Azure OpenAI</option>
                                 <option value="chutes">Chutes</option>
                                 <option value="claude">Claude</option>
@@ -3630,6 +3634,23 @@
                             <h4>SiliconFlow Model</h4>
                             <select id="model_siliconflow_select">
                                 <option value="" data-i18n="-- Connect to the API --">-- Connect to the API --</option>
+                            </select>
+                        </div>
+                        <div id="atlascloud_form" data-source="atlascloud">
+                            <h4>Atlascloud API Key</h4>
+                            <div class="flex-container">
+                                <input id="api_key_atlascloud" name="api_key_atlascloud" class="text_pole flex1" value="" type="text" autocomplete="off">
+                                <div title="Manage API keys" data-i18n="[title]Manage API keys" class="menu_button fa-solid fa-key fa-fw manage-api-keys" data-key="api_key_atlascloud"></div>
+                            </div>
+                            <div data-for="api_key_atlascloud" class="neutral_warning" data-i18n="For privacy reasons, your API key will be hidden after you click 'Connect'.">
+                                For privacy reasons, your API key will be hidden after you click 'Connect'.
+                            </div>
+                            <div class="toggle-description justifyLeft marginTopBot5">
+                                <small>Uses the OpenAI-compatible endpoint <code>https://api.atlascloud.ai/v1</code>.</small>
+                            </div>
+                            <h4>Atlascloud Model</h4>
+                            <select id="model_atlascloud_select">
+                                <option value="deepseek-ai/DeepSeek-V3.1">deepseek-ai/DeepSeek-V3.1</option>
                             </select>
                         </div>
                         <div id="minimax_form" data-source="minimax">

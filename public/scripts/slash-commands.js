@@ -6263,6 +6263,7 @@ function getModelOptions(quiet) {
         { id: 'model_groq_select', api: 'openai', type: chat_completion_sources.GROQ },
         { id: 'model_chutes_select', api: 'openai', type: chat_completion_sources.CHUTES },
         { id: 'model_siliconflow_select', api: 'openai', type: chat_completion_sources.SILICONFLOW },
+        { id: 'model_atlascloud_select', api: 'openai', type: chat_completion_sources.ATLASCLOUD },
         { id: 'model_minimax_select', api: 'openai', type: chat_completion_sources.MINIMAX },
         { id: 'model_electronhub_select', api: 'openai', type: chat_completion_sources.ELECTRONHUB },
         { id: 'model_featherless_chat_select', api: 'openai', type: chat_completion_sources.FEATHERLESS },

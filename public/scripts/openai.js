@@ -206,6 +206,7 @@ export const chat_completion_sources = {
     AZURE_OPENAI: 'azure_openai',
     ZAI: 'zai',
     SILICONFLOW: 'siliconflow',
+    ATLASCLOUD: 'atlascloud',
     WORKERS_AI: 'workers_ai',
     MINIMAX: 'minimax',
     FEATHERLESS: 'featherless',
@@ -419,6 +420,7 @@ export const settingsToUpdate = {
     chutes_model: ['#model_chutes_select', 'chutes_model', false, true],
     siliconflow_model: ['#model_siliconflow_select', 'siliconflow_model', false, true],
     siliconflow_endpoint: ['#siliconflow_endpoint', 'siliconflow_endpoint', false, true],
+    atlascloud_model: ['#model_atlascloud_select', 'atlascloud_model', false, true],
     minimax_model: ['#model_minimax_select', 'minimax_model', false, true],
     minimax_endpoint: ['#minimax_endpoint', 'minimax_endpoint', false, true],
     electronhub_model: ['#model_electronhub_select', 'electronhub_model', false, true],
@@ -539,6 +541,7 @@ const default_settings = {
     chutes_model: 'deepseek-ai/DeepSeek-V3-0324',
     siliconflow_model: 'deepseek-ai/DeepSeek-V3',
     siliconflow_endpoint: SILICONFLOW_ENDPOINT.GLOBAL,
+    atlascloud_model: 'deepseek-ai/DeepSeek-V3.1',
     minimax_model: 'MiniMax-M2.7',
     minimax_endpoint: MINIMAX_ENDPOINT.GLOBAL,
     electronhub_model: 'gpt-4o-mini',
@@ -1829,6 +1832,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.groq_model;
         case chat_completion_sources.SILICONFLOW:
             return settings.siliconflow_model;
+        case chat_completion_sources.ATLASCLOUD:
+            return settings.atlascloud_model;
         case chat_completion_sources.MINIMAX:
             return settings.minimax_model;
         case chat_completion_sources.ELECTRONHUB:
@@ -2389,6 +2394,24 @@ function saveModelList(data) {
         }
 
         $('#model_siliconflow_select').val(oai_settings.siliconflow_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.ATLASCLOUD) {
+        $('#model_atlascloud_select').empty();
+        model_list.forEach((model) => {
+            $('#model_atlascloud_select').append(
+                $('<option>', {
+                    value: model.id,
+                    text: model.id,
+                }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.atlascloud_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.atlascloud_model)) {
+            oai_settings.atlascloud_model = model_list[0].id;
+        }
+
+        $('#model_atlascloud_select').val(oai_settings.atlascloud_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
@@ -3348,6 +3371,121 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.siliconflow_endpoint = settings.siliconflow_endpoint || SILICONFLOW_ENDPOINT.GLOBAL;
     }
 
+    if (settings.chat_completion_source === chat_completion_sources.ATLASCLOUD) {
+        const atlascloudModel = String(model || '').toLowerCase();
+        const atlascloudNativeModel = atlascloudModel.includes('/') ? atlascloudModel.split('/').slice(1).join('/') : atlascloudModel;
+        const isZaiModel = atlascloudModel.startsWith('zai-org/') || /(?:^|\/)glm-/.test(atlascloudModel);
+        const isDeepSeekModel = atlascloudModel.includes('deepseek');
+        const isMoonshotModel = atlascloudModel.includes('moonshot') || atlascloudModel.includes('kimi');
+        const isMinimaxModel = atlascloudModel.includes('minimax');
+        const isClaudeModel = atlascloudModel.startsWith('anthropic/claude-') || atlascloudNativeModel.startsWith('claude-');
+        const isGoogleModel = atlascloudModel.startsWith('google/gemini-') || atlascloudNativeModel.startsWith('gemini-');
+        const isOpenAiModel = atlascloudModel.startsWith('openai/');
+        const isXaiModel = atlascloudModel.startsWith('xai/');
+
+        generate_data.top_k = settings.top_k_openai > 0 ? Number(settings.top_k_openai) : undefined;
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai) !== 1 ? Number(settings.repetition_penalty_openai) : undefined;
+        delete generate_data.frequency_penalty;
+        delete generate_data.presence_penalty;
+        delete generate_data.stop;
+        delete generate_data.logit_bias;
+        delete generate_data.seed;
+        delete generate_data.n;
+        delete generate_data.max_completion_tokens;
+
+        if (isZaiModel) {
+            generate_data.top_p = generate_data.top_p || 0.01;
+        }
+
+        if (isDeepSeekModel) {
+            generate_data.top_p = generate_data.top_p || Number.EPSILON;
+        }
+
+        if (isXaiModel) {
+            generate_data.max_completion_tokens = generate_data.max_tokens;
+            delete generate_data.max_tokens;
+            generate_data.top_p = generate_data.top_p || Number.EPSILON;
+        }
+
+        if (isGoogleModel) {
+            delete generate_data.repetition_penalty;
+        }
+
+        if (isZaiModel || isDeepSeekModel || isMoonshotModel || isMinimaxModel) {
+            delete generate_data.top_k;
+            delete generate_data.repetition_penalty;
+        }
+
+        if (isMoonshotModel && isMoonshotKimiAlwaysOnThinkingModel(atlascloudNativeModel)) {
+            generate_data.include_reasoning = true;
+        }
+
+        if (isOpenAiModel && /^(o1|o3|o4)/.test(atlascloudNativeModel)) {
+            generate_data.max_completion_tokens = generate_data.max_tokens;
+            delete generate_data.max_tokens;
+            delete generate_data.temperature;
+            delete generate_data.top_p;
+
+            if (/^o1/.test(atlascloudNativeModel)) {
+                generate_data.messages.forEach((msg) => {
+                    if (msg.role === 'system') {
+                        msg.role = 'user';
+                    }
+                });
+            }
+        }
+
+        if (isOpenAiModel && /gpt-5/.test(atlascloudNativeModel)) {
+            generate_data.max_completion_tokens = generate_data.max_tokens;
+            delete generate_data.max_tokens;
+
+            if (/gpt-5-chat-latest/.test(atlascloudNativeModel)) {
+                // no-op: chat-latest keeps sampling parameters in the direct OpenAI path.
+            } else if (/gpt-5\.(1|2|3|4)/.test(atlascloudNativeModel) && !/chat-latest/.test(atlascloudNativeModel) && !generate_data.reasoning_effort) {
+                // Keep temperature/top_p, matching direct OpenAI chat-completions handling.
+            } else {
+                delete generate_data.temperature;
+                delete generate_data.top_p;
+            }
+        }
+
+        if (isClaudeModel) {
+            const isClaudeThinkingModel = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(atlascloudNativeModel);
+            const isClaudeLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(atlascloudNativeModel);
+            const isClaudeAdaptiveModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-4-6|sonnet-4-6)/.test(atlascloudNativeModel);
+            const isClaudeNoSampling = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5)/.test(atlascloudNativeModel);
+
+            delete generate_data.repetition_penalty;
+
+            if (isClaudeLimitedSampling) {
+                if (generate_data.top_p < 1) {
+                    delete generate_data.temperature;
+                } else {
+                    delete generate_data.top_p;
+                }
+            }
+
+            if (isClaudeNoSampling) {
+                delete generate_data.temperature;
+                delete generate_data.top_p;
+                delete generate_data.top_k;
+            } else if (generate_data.include_reasoning && isClaudeAdaptiveModel) {
+                delete generate_data.top_k;
+            } else if (generate_data.include_reasoning && isClaudeThinkingModel) {
+                if (Number(generate_data.max_tokens) <= 1024) {
+                    generate_data.max_tokens = Number(generate_data.max_tokens) + 1024;
+                }
+                delete generate_data.temperature;
+                delete generate_data.top_p;
+                delete generate_data.top_k;
+            }
+        }
+
+        if (isMinimaxModel && Number.isFinite(generate_data.temperature)) {
+            generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
+        }
+    }
+
     if (settings.chat_completion_source === chat_completion_sources.MINIMAX) {
         generate_data.minimax_endpoint = settings.minimax_endpoint || MINIMAX_ENDPOINT.GLOBAL;
         // MiniMax requires temperature in (0.0, 1.0]; zero is rejected.
@@ -3739,7 +3877,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -4910,6 +5048,7 @@ function setContinuePostfixControls() {
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
+    $('#openai_reasoning_effort').prop('disabled', oai_settings.chat_completion_source === chat_completion_sources.ATLASCLOUD && !isEnabled);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
 }
 
@@ -5781,6 +5920,28 @@ function getSiliconflowMaxContext(model, isUnlocked) {
 }
 
 /**
+ * Get the maximum context size for the Atlascloud model
+ * @param {string} model Model identifier
+ * @param {boolean} isUnlocked Whether context limits are unlocked
+ * @returns {number} Maximum context size in tokens
+ */
+function getAtlascloudMaxContext(model, isUnlocked) {
+    if (isUnlocked) {
+        return unlocked_max;
+    }
+
+    if (Array.isArray(model_list)) {
+        const modelInfo = model_list.find(m => m.id === model);
+        const contextLength = modelInfo?.context_length || modelInfo?.context_window || modelInfo?.max_context_length;
+        if (contextLength) {
+            return contextLength;
+        }
+    }
+
+    return max_128k;
+}
+
+/**
  * Get the maximum context size for the Moonshot model
  * @param {string} model Model identifier
  * @param {boolean} isUnlocked If context limits are unlocked
@@ -6024,6 +6185,15 @@ async function onModelChange() {
         }
         console.log('SiliconFlow model changed to', value);
         oai_settings.siliconflow_model = value;
+    }
+
+    if ($(this).is('#model_atlascloud_select')) {
+        if (!value) {
+            console.debug('Null Atlascloud model selected. Ignoring.');
+            return;
+        }
+        console.log('Atlascloud model changed to', value);
+        oai_settings.atlascloud_model = value;
     }
 
     if ($(this).is('#model_minimax_select')) {
@@ -6470,6 +6640,15 @@ async function onModelChange() {
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.ATLASCLOUD) {
+        const maxContext = getAtlascloudMaxContext(oai_settings.atlascloud_model, oai_settings.max_context_unlocked);
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+    }
+
     if (oai_settings.chat_completion_source === chat_completion_sources.MINIMAX) {
         const maxContext = oai_settings.minimax_model === 'M2-her' ? 65536 : 204800;
         $('#openai_max_context').attr('max', maxContext);
@@ -6527,6 +6706,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.PERPLEXITY]: { key: SECRET_KEYS.PERPLEXITY, selector: '#api_key_perplexity', proxy: false },
         [chat_completion_sources.GROQ]: { key: SECRET_KEYS.GROQ, selector: '#api_key_groq', proxy: false },
         [chat_completion_sources.SILICONFLOW]: { key: SECRET_KEYS.SILICONFLOW, selector: '#api_key_siliconflow', proxy: false },
+        [chat_completion_sources.ATLASCLOUD]: { key: SECRET_KEYS.ATLASCLOUD, selector: '#api_key_atlascloud', proxy: false },
         [chat_completion_sources.ELECTRONHUB]: { key: SECRET_KEYS.ELECTRONHUB, selector: '#api_key_electronhub', proxy: false },
         [chat_completion_sources.NANOGPT]: { key: SECRET_KEYS.NANOGPT, selector: '#api_key_nanogpt', proxy: false },
         [chat_completion_sources.DEEPSEEK]: { key: SECRET_KEYS.DEEPSEEK, selector: '#api_key_deepseek', proxy: true },
@@ -6607,6 +6787,8 @@ function toggleChatCompletionForms() {
         $('#model_chutes_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.SILICONFLOW) {
         $('#model_siliconflow_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.ATLASCLOUD) {
+        $('#model_atlascloud_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.MINIMAX) {
         $('#model_minimax_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.ELECTRONHUB) {
@@ -7870,6 +8052,7 @@ export function initOpenAI() {
     $('#model_groq_select').on('change', onModelChange);
     $('#model_chutes_select').on('change', onModelChange);
     $('#model_siliconflow_select').on('change', onModelChange);
+    $('#model_atlascloud_select').on('change', onModelChange);
     $('#model_minimax_select').on('change', onModelChange);
     $('#model_electronhub_select').on('change', onModelChange);
     $('#model_featherless_chat_select').on('change', onModelChange);
