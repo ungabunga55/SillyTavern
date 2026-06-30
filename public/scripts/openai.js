@@ -269,6 +269,20 @@ export const tool_reasoning_modes = {
 };
 
 const moonshotKimiFixedParameterModelRegex = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+const claudeLegacySamplingModelRegexes = [
+    /^claude-2(?:$|[-.])/,
+    /^claude-instant(?:$|-)/,
+    /^claude-3(?:$|-)/,
+    /^claude-(?:opus|sonnet)-4(?:$|-20\d{6})/,
+    /^claude-opus-4-(?:1|5|6)(?:$|-)/,
+    /^claude-sonnet-4-(?:5|6)(?:$|-)/,
+    /^claude-haiku-4-5(?:$|-)/,
+];
+const claudeLimitedSamplingModelRegexes = [
+    /^claude-opus-4-(?:1|5|6)(?:$|-)/,
+    /^claude-sonnet-4-(?:5|6)(?:$|-)/,
+    /^claude-haiku-4-5(?:$|-)/,
+];
 
 /**
  * Checks if an xAI model supports the reasoning_effort parameter.
@@ -326,6 +340,70 @@ export function isMoonshotKimiAlwaysOnThinkingModel(model) {
  */
 export function isMoonshotKimiThinkingEnabledModel(model, includeReasoning) {
     return isMoonshotKimiAlwaysOnThinkingModel(model) || (isMoonshotKimiFixedParameterModel(model) && includeReasoning);
+}
+
+/**
+ * Normalizes a Claude model id for capability checks.
+ * @param {string} model Model identifier
+ * @returns {string} Normalized model id
+ */
+function getClaudeModelId(model) {
+    return String(model || '').toLowerCase().trim();
+}
+
+/**
+ * Checks if a Claude model is known to still accept sampling parameters.
+ * Unknown future Claude models default to no-sampling because newer Claude
+ * releases reject temperature, top_p, and top_k entirely.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if sampling parameters may be sent
+ */
+function isClaudeLegacySamplingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return claudeLegacySamplingModelRegexes.some(regex => regex.test(modelId));
+}
+
+/**
+ * Checks if a Claude model applies the temperature/top_p mutual-exclusion rule.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if only one sampler should be sent
+ */
+function isClaudeLimitedSamplingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return claudeLimitedSamplingModelRegexes.some(regex => regex.test(modelId));
+}
+
+/**
+ * Checks if a Claude model rejects sampling parameters entirely.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if temperature, top_p, and top_k should be stripped
+ */
+function isClaudeNoSamplingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return (modelId.startsWith('claude-') || modelId.startsWith('claude.')) && !isClaudeLegacySamplingModel(modelId);
+}
+
+/**
+ * Checks if a Claude model supports thinking mode.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if thinking may be sent
+ */
+function isClaudeThinkingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return /^claude-3-7(?:$|-)/.test(modelId)
+        || /^claude-(?:opus|sonnet)-4(?:$|-20\d{6})/.test(modelId)
+        || isClaudeLimitedSamplingModel(modelId)
+        || isClaudeNoSamplingModel(modelId);
+}
+
+/**
+ * Checks if a Claude model uses adaptive thinking effort.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if adaptive thinking should be used
+ */
+function isClaudeAdaptiveThinkingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return isClaudeNoSamplingModel(modelId) || /^claude-(?:opus-4-6|sonnet-4-6)(?:$|-)/.test(modelId);
 }
 
 // Providers that support interleaved reasoning forwarding in tool-call chains.
@@ -3425,7 +3503,10 @@ export async function createGenerationParameters(settings, model, type, messages
         const isDeepSeekModel = atlascloudModel.includes('deepseek');
         const isMoonshotModel = atlascloudModel.includes('moonshot') || atlascloudModel.includes('kimi');
         const isMinimaxModel = atlascloudModel.includes('minimax');
-        const isClaudeModel = atlascloudModel.startsWith('anthropic/claude-') || atlascloudNativeModel.startsWith('claude-');
+        const isClaudeModel = atlascloudModel.startsWith('anthropic/claude-')
+            || atlascloudModel.startsWith('anthropic/claude.')
+            || atlascloudNativeModel.startsWith('claude-')
+            || atlascloudNativeModel.startsWith('claude.');
         const isGoogleModel = atlascloudModel.startsWith('google/gemini-') || atlascloudNativeModel.startsWith('gemini-');
         const isOpenAiModel = atlascloudModel.startsWith('openai/');
         const isXaiModel = atlascloudModel.startsWith('xai/');
@@ -3497,10 +3578,10 @@ export async function createGenerationParameters(settings, model, type, messages
         }
 
         if (isClaudeModel) {
-            const isClaudeThinkingModel = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(atlascloudNativeModel);
-            const isClaudeLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(atlascloudNativeModel);
-            const isClaudeAdaptiveModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-4-6|sonnet-4-6)/.test(atlascloudNativeModel);
-            const isClaudeNoSampling = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5)/.test(atlascloudNativeModel);
+            const isClaudeThinking = isClaudeThinkingModel(atlascloudNativeModel);
+            const isClaudeLimitedSampling = isClaudeLimitedSamplingModel(atlascloudNativeModel);
+            const isClaudeAdaptiveModel = isClaudeAdaptiveThinkingModel(atlascloudNativeModel);
+            const isClaudeNoSampling = isClaudeNoSamplingModel(atlascloudNativeModel);
 
             delete generate_data.repetition_penalty;
 
@@ -3516,9 +3597,12 @@ export async function createGenerationParameters(settings, model, type, messages
                 delete generate_data.temperature;
                 delete generate_data.top_p;
                 delete generate_data.top_k;
-            } else if (generate_data.include_reasoning && isClaudeAdaptiveModel) {
+            }
+
+            if (generate_data.include_reasoning && isClaudeAdaptiveModel) {
+                generate_data.thinking = { type: 'adaptive', display: 'summarized' };
                 delete generate_data.top_k;
-            } else if (generate_data.include_reasoning && isClaudeThinkingModel) {
+            } else if (generate_data.include_reasoning && isClaudeThinking) {
                 if (Number(generate_data.max_tokens) <= 1024) {
                     generate_data.max_tokens = Number(generate_data.max_tokens) + 1024;
                 }

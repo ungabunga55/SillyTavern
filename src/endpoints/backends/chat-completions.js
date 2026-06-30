@@ -115,6 +115,20 @@ const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+const CLAUDE_LEGACY_SAMPLING_MODEL_REGEXES = [
+    /^claude-2(?:$|[-.])/,
+    /^claude-instant(?:$|-)/,
+    /^claude-3(?:$|-)/,
+    /^claude-(?:opus|sonnet)-4(?:$|-20\d{6})/,
+    /^claude-opus-4-(?:1|5|6)(?:$|-)/,
+    /^claude-sonnet-4-(?:5|6)(?:$|-)/,
+    /^claude-haiku-4-5(?:$|-)/,
+];
+const CLAUDE_LIMITED_SAMPLING_MODEL_REGEXES = [
+    /^claude-opus-4-(?:1|5|6)(?:$|-)/,
+    /^claude-sonnet-4-(?:5|6)(?:$|-)/,
+    /^claude-haiku-4-5(?:$|-)/,
+];
 
 /**
  * Checks if a Moonshot Kimi model only accepts fixed sampler values.
@@ -132,6 +146,110 @@ function isMoonshotKimiFixedParameterModel(model) {
  */
 function isMoonshotKimiAlwaysOnThinkingModel(model) {
     return /^kimi-k2\.7-code$/.test(String(model || ''));
+}
+
+/**
+ * Normalizes a Claude model id for capability checks.
+ * @param {string} model Model identifier
+ * @returns {string} Normalized model id
+ */
+function getClaudeModelId(model) {
+    return String(model || '').toLowerCase().trim();
+}
+
+/**
+ * Checks if a model id identifies an Anthropic Claude model.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model is Claude
+ */
+function isClaudeModel(model) {
+    const modelId = getClaudeModelId(model);
+    return modelId.startsWith('claude-') || modelId.startsWith('claude.');
+}
+
+/**
+ * Checks if a Claude model is known to still accept sampling parameters.
+ * Unknown future Claude models default to no-sampling because newer Claude
+ * releases reject temperature, top_p, and top_k entirely.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if sampling parameters may be sent
+ */
+function isClaudeLegacySamplingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return CLAUDE_LEGACY_SAMPLING_MODEL_REGEXES.some(regex => regex.test(modelId));
+}
+
+/**
+ * Checks if a Claude model applies the temperature/top_p mutual-exclusion rule.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if only one sampler should be sent
+ */
+function isClaudeLimitedSamplingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return CLAUDE_LIMITED_SAMPLING_MODEL_REGEXES.some(regex => regex.test(modelId));
+}
+
+/**
+ * Checks if a Claude model rejects sampling parameters entirely.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if temperature, top_p, and top_k should be stripped
+ */
+function isClaudeNoSamplingModel(model) {
+    return isClaudeModel(model) && !isClaudeLegacySamplingModel(model);
+}
+
+/**
+ * Checks if a Claude model supports thinking mode.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if thinking may be sent
+ */
+function isClaudeThinkingModel(model) {
+    const modelId = getClaudeModelId(model);
+    return /^claude-3-7(?:$|-)/.test(modelId)
+        || /^claude-(?:opus|sonnet)-4(?:$|-20\d{6})/.test(modelId)
+        || isClaudeLimitedSamplingModel(modelId)
+        || isClaudeNoSamplingModel(modelId);
+}
+
+/**
+ * Checks if a Claude model uses adaptive thinking effort.
+ * @param {string} model Model identifier
+ * @param {boolean} enableLegacyAdaptive Whether to enable adaptive mode for transitional 4.6 models
+ * @returns {boolean} True if adaptive thinking should be used
+ */
+function isClaudeAdaptiveThinkingModel(model, enableLegacyAdaptive = true) {
+    const modelId = getClaudeModelId(model);
+    return isClaudeNoSamplingModel(modelId)
+        || (enableLegacyAdaptive && /^claude-(?:opus-4-6|sonnet-4-6)(?:$|-)/.test(modelId));
+}
+
+/**
+ * Checks if a Claude model rejects assistant prefill in thinking/adaptive modes.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if assistant prefill should be converted
+ */
+function isClaudeNoPrefillModel(model) {
+    const modelId = getClaudeModelId(model);
+    return isClaudeNoSamplingModel(modelId) || /^claude-(?:opus-4-6|sonnet-4-6)(?:$|-)/.test(modelId);
+}
+
+/**
+ * Checks if a Claude model supports verbosity/effort output config.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if verbosity may be sent
+ */
+function isClaudeVerbosityModel(model) {
+    const modelId = getClaudeModelId(model);
+    return isClaudeNoSamplingModel(modelId) || /^claude-(?:opus-4-5|opus-4-6|sonnet-4-6)(?:$|-)/.test(modelId);
+}
+
+/**
+ * Checks if adaptive thinking should be emitted even with automatic effort.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if adaptive thinking is forced on
+ */
+function isClaudeForcedAdaptiveThinkingModel(model) {
+    return /^claude-(?:fable-5|mythos-5|mythos-preview)(?:$|-)/.test(getClaudeModelId(model));
 }
 
 /**
@@ -315,10 +433,10 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
     }
 
     if (family === 'claude') {
-        const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(nativeModel);
-        const isLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(nativeModel);
-        const isAdaptiveModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(nativeModel) || (enableAdaptiveThinking && /^claude-(opus-4-6|sonnet-4-6)/.test(nativeModel));
-        const noSamplingModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5)/.test(nativeModel);
+        const useThinking = isClaudeThinkingModel(nativeModel);
+        const isLimitedSampling = isClaudeLimitedSamplingModel(nativeModel);
+        const isAdaptiveModel = isClaudeAdaptiveThinkingModel(nativeModel, enableAdaptiveThinking);
+        const noSamplingModel = isClaudeNoSamplingModel(nativeModel);
 
         delete requestBody.repetition_penalty;
 
@@ -334,7 +452,10 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
             delete requestBody.temperature;
             delete requestBody.top_p;
             delete requestBody.top_k;
-        } else if (includeReasoning && isAdaptiveModel) {
+        }
+
+        if (includeReasoning && isAdaptiveModel) {
+            requestBody.thinking = { type: 'adaptive', display: 'summarized' };
             delete requestBody.top_k;
         } else if (includeReasoning && useThinking) {
             if (Number(requestBody.max_tokens) <= 1024) {
@@ -362,7 +483,7 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
  */
 function getAtlascloudModelFamily(modelId) {
     if (modelId.startsWith('openai/')) return 'openai';
-    if (modelId.startsWith('anthropic/claude-')) return 'claude';
+    if (modelId.startsWith('anthropic/claude-') || modelId.startsWith('anthropic/claude.')) return 'claude';
     if (modelId.startsWith('google/gemini-')) return 'google';
     if (modelId.startsWith('xai/')) return 'xai';
     if (modelId.startsWith('zai-org/') || /(?:^|\/)glm-/.test(modelId)) return 'zai';
@@ -1039,15 +1160,15 @@ async function sendClaudeRequest(request, response) {
         const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.use_sysprompt);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
-        const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(request.body.model);
+        const useThinking = isClaudeThinkingModel(request.body.model);
         const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model) && Boolean(request.body.enable_web_search);
-        const isLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(request.body.model);
-        const useVerbosity = /^claude-(opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model);
-        const noPrefillModel = /^claude-(opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model);
-        const isAdaptiveModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(request.body.model) || (enableAdaptiveThinking && /^claude-(opus-4-6|sonnet-4-6)/.test(request.body.model));
-        const noSamplingModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model);
-        const forcedAdaptiveModel = /^claude-(fable-5|mythos-5|mythos-preview)/.test(request.body.model);
-        const omittedThinkingDisplayModel = /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview)/.test(request.body.model);
+        const isLimitedSampling = isClaudeLimitedSamplingModel(request.body.model);
+        const useVerbosity = isClaudeVerbosityModel(request.body.model);
+        const noPrefillModel = isClaudeNoPrefillModel(request.body.model);
+        const isAdaptiveModel = isClaudeAdaptiveThinkingModel(request.body.model, enableAdaptiveThinking);
+        const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
+        const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
+        const omittedThinkingDisplayModel = noSamplingModel;
         let fixThinkingPrefill = false;
         // Add custom stop sequences
         const stopSequences = [];
@@ -1131,13 +1252,13 @@ async function sendClaudeRequest(request, response) {
         }
 
         const reasoningEffort = request.body.reasoning_effort;
+        const includeReasoning = Boolean(request.body.include_reasoning);
         const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream, isAdaptiveModel);
 
         // Adaptive thinking: returns a string effort level (like Gemini 3)
         if (useThinking && typeof budgetTokens === 'string') {
             fixThinkingPrefill = true;
             requestBody.thinking = { type: 'adaptive' };
-            const includeReasoning = Boolean(request.body.include_reasoning);
             if (omittedThinkingDisplayModel && includeReasoning) {
                 requestBody.thinking.display = 'summarized';
             }
@@ -1145,11 +1266,10 @@ async function sendClaudeRequest(request, response) {
             requestBody.output_config.effort = budgetTokens;
             // top_k is not allowed in adaptive mode
             delete requestBody.top_k;
-        } else if (useThinking && forcedAdaptiveModel && budgetTokens === null) {
-            // Thinking is always on for these models, but reasoning display defaults to omitted.
+        } else if (useThinking && budgetTokens === null && (forcedAdaptiveModel || (noSamplingModel && includeReasoning))) {
+            // Adaptive-only models use adaptive thinking without explicit effort at auto.
             fixThinkingPrefill = true;
             requestBody.thinking = { type: 'adaptive' };
-            const includeReasoning = Boolean(request.body.include_reasoning);
             if (includeReasoning) {
                 requestBody.thinking.display = 'summarized';
             }
