@@ -6510,7 +6510,7 @@ async function onModelChange() {
     if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
-        } else if (/^claude-(sonnet-4-5|sonnet-4-6|opus-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(value)) {
+        } else if (/^claude-(sonnet-4-5|sonnet-4-6|sonnet-5|opus-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(value)) {
             $('#openai_max_context').attr('max', max_1mil);
         } else if (/^claude-(3|opus|haiku|sonnet)/.test(value)) {
             $('#openai_max_context').attr('max', max_200k);
@@ -7046,6 +7046,7 @@ export function isImageInliningSupported() {
         'claude-3',
         'claude-opus-4',
         'claude-sonnet-4',
+        'claude-sonnet-5',
         'claude-haiku-4',
         'claude-fable-5',
         'claude-mythos-5',
