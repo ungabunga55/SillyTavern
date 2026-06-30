@@ -505,6 +505,14 @@
         max-height: 50px;
         overflow-y: auto;
     }
+
+    #WIMultiSelector select[multiple] {
+        min-height: 6rem;
+        max-height: min(40vh, 18rem);
+        max-height: min(40dvh, 18rem);
+        overflow: auto;
+        resize: vertical;
+    }
 }
 
 /*landscape mode phones and ipads*/
