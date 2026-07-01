@@ -206,13 +206,6 @@
         width: 100%;
     }
 
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(44dvw, 42dvh);
-        max-width: calc(50dvw - 12px);
-        max-height: calc(70dvh - 60px);
-    }
-
     .zoomed_avatar .dragClose {
         display: unset;
     }
@@ -546,13 +539,6 @@
         height: fit-content;
         width: 100%;
     }
-
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(44dvw, 42dvh);
-        max-width: calc(50dvw - 12px);
-        max-height: calc(70dvh - 60px);
-    }
 }
 
 /*portrait mode phones*/
@@ -577,31 +563,6 @@
         justify-content: center;
         height: fit-content;
         width: 100%;
-    }
-
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(90dvw, 42dvh);
-        max-width: 90dvw;
-        max-height: calc(50dvh - 16px);
-    }
-
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_0,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_dual_slot_0 {
-        left: 50% !important;
-        right: unset !important;
-        top: 8px !important;
-        bottom: unset !important;
-        transform: translateX(-50%) !important;
-    }
-
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_1,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_dual_slot_1 {
-        left: 50% !important;
-        right: unset !important;
-        top: unset !important;
-        bottom: 8px !important;
-        transform: translateX(-50%) !important;
     }
 
     .drawer25pWidth {
