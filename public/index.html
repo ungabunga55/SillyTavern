@@ -2212,6 +2212,9 @@
                                             <div class="toggle-description justifyLeft marginBot5" data-source="xai" data-i18n="xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.">
                                                 xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.
                                             </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="nanogpt" data-i18n="NanoGPT supports minimal, low, medium, high, and xhigh reasoning efforts. Auto uses the provider default; unchecking Request model reasoning hides reasoning output with reasoning.exclude.">
+                                                NanoGPT supports minimal, low, medium, high, and xhigh reasoning efforts. Auto uses the provider default; unchecking Request model reasoning hides reasoning output with reasoning.exclude.
+                                            </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.">
                                                 Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.
                                             </div>
@@ -3796,6 +3799,16 @@
                                     <input id="nanogpt_payg_override" type="checkbox" />
                                     <span data-i18n="Use pay-as-you-go billing">Use pay-as-you-go billing</span>
                                 </label>
+                                <label class="flex-container alignItemsCenter gap5px marginTopBot5" for="nanogpt_service_tier">
+                                    <span data-i18n="Service Tier">Service Tier</span>
+                                    <select id="nanogpt_service_tier" class="flex1">
+                                        <option value="" data-i18n="Provider default">Provider default</option>
+                                        <option value="auto" data-i18n="Auto">Auto</option>
+                                        <option value="default" data-i18n="Default">Default</option>
+                                        <option value="flex" data-i18n="Flex">Flex</option>
+                                        <option value="priority" data-i18n="Priority">Priority</option>
+                                    </select>
+                                </label>
                             </div>
                         </div>
                         <div id="workers_ai_form" data-source="workers_ai">
@@ -4154,6 +4167,8 @@
                                                 <option data-i18n="Prompt Price (cheapest)" value="pricing.prompt">Prompt Price (cheapest)</option>
                                                 <option data-i18n="Completion Price (cheapest)" value="pricing.completion">Completion Price (cheapest)</option>
                                                 <option data-i18n="Context Size" value="context_length">Context Size</option>
+                                                <option data-i18n="NanoGPT Favorites" value="favorites">NanoGPT Favorites</option>
+                                                <option data-i18n="NanoGPT Most Used" value="mostused">NanoGPT Most Used</option>
                                             </select>
                                         </label>
                                     </div>

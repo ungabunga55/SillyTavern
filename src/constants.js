@@ -505,12 +505,12 @@ export const OPENAI_FIXED_REASONING_EFFORT = {
 };
 
 export const NANOGPT_REASONING_EFFORT_MAP = {
-    min: 'none',
-    low: 'minimal',
-    medium: 'low',
-    high: 'medium',
-    xhigh: 'high',
-    max: 'high',
+    min: 'minimal',
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    xhigh: 'xhigh',
+    max: 'xhigh',
 };
 
 export const LOG_LEVELS = {

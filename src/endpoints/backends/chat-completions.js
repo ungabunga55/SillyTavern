@@ -2724,6 +2724,9 @@ router.post('/status', async function (request, statusResponse) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.NANOGPT, request.body.secret_id);
             headers = {};
             queryParams = { detailed: true };
+            if (['favorites', 'mostused'].includes(String(request.body.sort_models))) {
+                queryParams.sort = request.body.sort_models;
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.DEEPSEEK) {
             apiUrl = new URL(request.body.reverse_proxy || API_DEEPSEEK.replace('/beta', '')).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.DEEPSEEK, request.body.secret_id);
@@ -3361,7 +3364,13 @@ router.post('/generate', async function (request, response) {
                 headers['X-Billing-Mode'] = 'paygo';
                 bodyParams['billing_mode'] = 'paygo';
             }
-            if (request.body.enable_web_search && !/:online$/.test(request.body.model)) {
+            if (request.body.nanogpt_service_tier) {
+                const serviceTier = String(request.body.nanogpt_service_tier);
+                if (['auto', 'default', 'flex', 'priority'].includes(serviceTier)) {
+                    bodyParams['service_tier'] = serviceTier;
+                }
+            }
+            if (request.body.enable_web_search && !/(?:^|:)online(?:[/:]|$)/.test(request.body.model)) {
                 request.body.model = `${request.body.model}:online`;
             }
             if (request.body.min_p !== undefined) {
@@ -3373,9 +3382,18 @@ router.post('/generate', async function (request, response) {
             if (request.body.repetition_penalty !== undefined) {
                 bodyParams['repetition_penalty'] = request.body.repetition_penalty;
             }
-            if (request.body.reasoning_effort) {
-                const effort = NANOGPT_REASONING_EFFORT_MAP[request.body.reasoning_effort];
-                bodyParams['reasoning'] = { effort: effort };
+            const reasoning = {};
+            if (request.body.include_reasoning === false) {
+                reasoning.exclude = true;
+            }
+            if (request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
+                const effort = NANOGPT_REASONING_EFFORT_MAP[request.body.reasoning_effort] ?? request.body.reasoning_effort;
+                if (effort) {
+                    reasoning.effort = effort;
+                }
+            }
+            if (Object.keys(reasoning).length > 0) {
+                bodyParams['reasoning'] = reasoning;
             }
 
             const isClaude = /(?:^|\/)claude[-_]/.test(request.body.model);

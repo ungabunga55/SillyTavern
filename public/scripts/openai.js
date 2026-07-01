@@ -506,6 +506,7 @@ export const settingsToUpdate = {
     nanogpt_model: ['#model_nanogpt_select', 'nanogpt_model', false, true],
     nanogpt_provider: ['#nanogpt_provider', 'nanogpt_provider', false, true],
     nanogpt_payg_override: ['#nanogpt_payg_override', 'nanogpt_payg_override', true, true],
+    nanogpt_service_tier: ['#nanogpt_service_tier', 'nanogpt_service_tier', false, true],
     deepseek_model: ['#model_deepseek_select', 'deepseek_model', false, true],
     aimlapi_model: ['#model_aimlapi_select', 'aimlapi_model', false, true],
     xai_model: ['#model_xai_select', 'xai_model', false, true],
@@ -627,6 +628,7 @@ const default_settings = {
     nanogpt_model: 'gpt-4o-mini',
     nanogpt_provider: '',
     nanogpt_payg_override: false,
+    nanogpt_service_tier: '',
     deepseek_model: 'deepseek-v4-flash',
     aimlapi_model: 'chatgpt-4o-latest',
     xai_model: 'grok-3-beta',
@@ -2859,6 +2861,10 @@ function sortModelsBy(data, property, source) {
                 }
             });
         case chat_completion_sources.NANOGPT:
+            if (['favorites', 'mostused'].includes(property)) {
+                return data;
+            }
+
             return data.sort((a, b) => {
                 if (property === 'context_length') {
                     return (b.context_length || 0) - (a.context_length || 0);
@@ -3334,6 +3340,7 @@ export async function createGenerationParameters(settings, model, type, messages
     if (settings.chat_completion_source === chat_completion_sources.NANOGPT) {
         generate_data.nanogpt_provider = settings.nanogpt_provider;
         generate_data.nanogpt_payg_override = settings.nanogpt_payg_override;
+        generate_data.nanogpt_service_tier = settings.nanogpt_service_tier;
     }
 
     if ([chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI].includes(settings.chat_completion_source)) {
@@ -5255,6 +5262,10 @@ async function getStatusOpen() {
 
     if (oai_settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
         data.workers_ai_account_id = oai_settings.workers_ai_account_id;
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.NANOGPT) {
+        data.sort_models = oai_settings.sort_models;
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.POLLINATIONS) {
@@ -8117,6 +8128,11 @@ export function initOpenAI() {
 
     $('#nanogpt_payg_override').on('input', function () {
         oai_settings.nanogpt_payg_override = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#nanogpt_service_tier').on('change', function () {
+        oai_settings.nanogpt_service_tier = String($(this).val() || '');
         saveSettingsDebounced();
     });
 
