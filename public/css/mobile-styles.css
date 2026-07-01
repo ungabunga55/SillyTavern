@@ -208,9 +208,36 @@
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(44dvw, 42dvh);
-        max-width: calc(50dvw - 12px);
-        max-height: calc(70dvh - 60px);
+        min-width: unset;
+        min-height: unset;
+        width: min(40dvw, 22dvh);
+        max-width: 40dvw;
+        max-height: 34dvh;
+    }
+
+    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_container,
+    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_container,
+    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar img,
+    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar img {
+        max-height: calc(34dvh - 32px);
+    }
+
+    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_0,
+    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_dual_slot_0 {
+        left: 50% !important;
+        right: unset !important;
+        top: 8px !important;
+        bottom: unset !important;
+        transform: translateX(-50%) !important;
+    }
+
+    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_1,
+    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_dual_slot_1 {
+        left: 50% !important;
+        right: unset !important;
+        top: unset !important;
+        bottom: 8px !important;
+        transform: translateX(-50%) !important;
     }
 
     .zoomed_avatar .dragClose {
@@ -549,9 +576,11 @@
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(44dvw, 42dvh);
-        max-width: calc(50dvw - 12px);
-        max-height: calc(70dvh - 60px);
+        min-width: unset;
+        min-height: unset;
+        width: min(40dvw, 22dvh);
+        max-width: 40dvw;
+        max-height: 34dvh;
     }
 }
 
@@ -581,16 +610,18 @@
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(45dvw, 28dvh);
-        max-width: 45dvw;
-        max-height: calc(32dvh - 16px);
+        min-width: unset;
+        min-height: unset;
+        width: min(40dvw, 22dvh);
+        max-width: 40dvw;
+        max-height: 34dvh;
     }
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_container,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_container,
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar img,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar img {
-        max-height: calc(32dvh - 16px);
+        max-height: calc(34dvh - 32px);
     }
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_0,
