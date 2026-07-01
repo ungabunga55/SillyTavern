@@ -581,16 +581,9 @@
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar,
     body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar {
-        width: min(45dvw, 28dvh);
-        max-width: 45dvw;
-        max-height: calc(32dvh - 16px);
-    }
-
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_container,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar_container,
-    body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar img,
-    body.zoomedAvatarDualFixed:not(.waifuMode) .zoomed_avatar img {
-        max-height: calc(32dvh - 16px);
+        width: min(90dvw, 42dvh);
+        max-width: 90dvw;
+        max-height: calc(50dvh - 16px);
     }
 
     body.zoomedAvatarDualSideBySide:not(.waifuMode) .zoomed_avatar_dual_slot_0,
