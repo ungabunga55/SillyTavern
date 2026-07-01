@@ -12268,8 +12268,25 @@ jQuery(async function () {
         const charname = targetAvatarImg.replace('.png', '');
         const isValidCharacter = characters.some(x => x.avatar === decodeURIComponent(targetAvatarImg));
 
-        // Remove existing zoomed avatars for characters that are not the clicked character when moving UI is not enabled
-        if (!power_user.movingUI) {
+        const getZoomedAvatarDualMode = () => ['side_by_side', 'fixed'].includes(power_user.zoomed_avatar_dual_mode) ? power_user.zoomed_avatar_dual_mode : 'off';
+        const syncZoomedAvatarDualLayout = () => {
+            const zoomedAvatarDualMode = getZoomedAvatarDualMode();
+            const zoomedAvatars = $('.zoomed_avatar[forChar]');
+            zoomedAvatars.removeClass('zoomed_avatar_dual_slot_0 zoomed_avatar_dual_slot_1');
+
+            if (zoomedAvatarDualMode === 'off') {
+                return;
+            }
+
+            const extraAvatars = zoomedAvatars.slice(0, -2);
+            extraAvatars.remove();
+            $('.zoomed_avatar[forChar]').slice(-2).each(function (index) {
+                $(this).addClass(`zoomed_avatar_dual_slot_${index}`);
+            });
+        };
+
+        // Remove existing zoomed avatars for characters that are not the clicked character when dual previews and moving UI are not enabled.
+        if (getZoomedAvatarDualMode() === 'off' && !power_user.movingUI) {
             $('.zoomed_avatar').each(function () {
                 const currentForChar = $(this).attr('forChar');
                 if (currentForChar !== charname && typeof currentForChar !== 'undefined') {
@@ -12284,6 +12301,7 @@ jQuery(async function () {
             console.debug('removing container as it already existed');
             $(`.zoomed_avatar[forChar="${charname}"]`).fadeOut(animation_duration, () => {
                 $(`.zoomed_avatar[forChar="${charname}"]`).remove();
+                syncZoomedAvatarDualLayout();
             });
         } else {
             console.debug('making new container from template');
@@ -12317,13 +12335,16 @@ jQuery(async function () {
             dragElement(newElement);
 
             if (power_user.zoomed_avatar_magnification) {
-                $('.zoomed_avatar_container').izoomify();
+                newElement.find('.zoomed_avatar_container').izoomify();
             }
 
-            $('.zoomed_avatar, .zoomed_avatar .dragClose').on('click touchend', (e) => {
+            syncZoomedAvatarDualLayout();
+
+            newElement.on('click touchend', (e) => {
                 if (e.target.closest('.dragClose')) {
                     $(`.zoomed_avatar[forChar="${charname}"]`).fadeOut(animation_duration, () => {
                         $(`.zoomed_avatar[forChar="${charname}"]`).remove();
+                        syncZoomedAvatarDualLayout();
                     });
                 }
             });

@@ -303,6 +303,7 @@ export const power_user = {
     servers: [],
     bogus_folders: false,
     zoomed_avatar_magnification: false,
+    zoomed_avatar_dual_mode: 'off',
     show_tag_filters: false,
     aux_field: 'character_version',
     stscript: {
@@ -500,6 +501,26 @@ function switchMesIDDisplay() {
 function switchHideChatAvatars() {
     $('body').toggleClass('hideChatAvatars', power_user.hideChatAvatars_enabled);
     $('#hideChatAvatarsEnabled').prop('checked', power_user.hideChatAvatars_enabled);
+}
+
+function switchZoomedAvatarDualMode() {
+    const mode = ['side_by_side', 'fixed'].includes(power_user.zoomed_avatar_dual_mode) ? power_user.zoomed_avatar_dual_mode : 'off';
+    power_user.zoomed_avatar_dual_mode = mode;
+    $('body').toggleClass('zoomedAvatarDualSideBySide', mode === 'side_by_side');
+    $('body').toggleClass('zoomedAvatarDualFixed', mode === 'fixed');
+    $('#zoomed_avatar_dual_mode').val(mode);
+
+    const zoomedAvatars = $('.zoomed_avatar[forChar]');
+    zoomedAvatars.removeClass('zoomed_avatar_dual_slot_0 zoomed_avatar_dual_slot_1');
+
+    if (mode === 'off') {
+        zoomedAvatars.not(':last').remove();
+    } else {
+        zoomedAvatars.slice(0, -2).remove();
+        $('.zoomed_avatar[forChar]').slice(-2).each(function (index) {
+            $(this).addClass(`zoomed_avatar_dual_slot_${index}`);
+        });
+    }
 }
 
 function switchMessageActions() {
@@ -1387,6 +1408,12 @@ function applyTheme(name) {
             },
         },
         {
+            key: 'zoomed_avatar_dual_mode',
+            action: () => {
+                switchZoomedAvatarDualMode();
+            },
+        },
+        {
             key: 'reduced_motion',
             action: () => {
                 $('#reduced_motion').prop('checked', power_user.reduced_motion);
@@ -1681,6 +1708,7 @@ export async function loadPowerUserSettings(settings, data) {
     $('#auto_scroll_chat_to_bottom').prop('checked', power_user.auto_scroll_chat_to_bottom);
     $('#bogus_folders').prop('checked', power_user.bogus_folders);
     $('#zoomed_avatar_magnification').prop('checked', power_user.zoomed_avatar_magnification);
+    switchZoomedAvatarDualMode();
     $(`#tokenizer option[value="${power_user.tokenizer}"]`).prop('selected', true);
     $(`#send_on_enter option[value=${power_user.send_on_enter}]`).prop('selected', true);
     $('#confirm_message_delete').prop('checked', power_user.confirm_message_delete !== undefined ? !!power_user.confirm_message_delete : true);
@@ -2569,6 +2597,7 @@ export function getThemeObject(name) {
         custom_css: power_user.custom_css,
         bogus_folders: power_user.bogus_folders,
         zoomed_avatar_magnification: power_user.zoomed_avatar_magnification,
+        zoomed_avatar_dual_mode: power_user.zoomed_avatar_dual_mode,
         reduced_motion: power_user.reduced_motion,
         compact_input_area: power_user.compact_input_area,
         show_swipe_num_all_messages: power_user.show_swipe_num_all_messages,
@@ -3905,6 +3934,12 @@ jQuery(() => {
     $('#zoomed_avatar_magnification').on('input', function () {
         power_user.zoomed_avatar_magnification = !!$(this).prop('checked');
         printCharactersDebounced();
+        saveSettingsDebounced();
+    });
+
+    $('#zoomed_avatar_dual_mode').on('change', function () {
+        power_user.zoomed_avatar_dual_mode = String($(this).find(':selected').val());
+        switchZoomedAvatarDualMode();
         saveSettingsDebounced();
     });
 
