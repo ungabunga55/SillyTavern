@@ -2580,7 +2580,7 @@
     "openai_reasoning_effort_minimum": "最小",
     "OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.": "OpenAI 類型選項：低、中、高。最小會視為低；除非提供者支援，否則超高和最大會視為高。自動不會傳送推理耗費。",
     "Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto does not request optional thinking.": "自適應 Claude 模型支援低、中、高、超高和最大推理耗費。舊版 Claude 思考會分配符元預算（最小：1024 符元，低：10%，中：25%，高：50%，超高/最大：95%）。自動不會請求可選思考。",
-    "openrouter_web_search_fee": "需付費。每次提示詞將額外收取 0.02 美元費用。",
+    "openrouter_web_search_fee": "需付費。每次提示詞將額外收取至少 0.005 美元費用。",
     "Pooled order": "合併順序",
     "Request inline images": "請求內嵌圖片",
     "Request inline images_desc_2": "與以下功能不相容：函數調用、網路搜尋、系統提示詞。",

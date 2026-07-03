@@ -2430,7 +2430,7 @@
     "Unknown": "Неизвестно",
     "enable_functions_desc_4": "Не работает, если выбрана постобработка промпта с отключенными функциями!",
     "This setting affects visibility only.": "Влияет только на видимость.",
-    "openrouter_web_search_fee": "Платная опция! Добавляет $0,02 к стоимости каждого промпта.",
+    "openrouter_web_search_fee": "Платная опция! Добавляет от $0,005 к стоимости каждого промпта.",
     "prompt_post_processing_semi_tools": "Semi-strict (чередовать роли, функции включены)",
     "prompt_post_processing_strict_tools": "Strict (чередовать роли, сначала пользователь; функции включены)",
     "prompt_post_processing_single": "Только одно сообщение пользователя (функции отключены)",

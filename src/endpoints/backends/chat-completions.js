@@ -1229,18 +1229,18 @@ function getOpenRouterTransforms(request) {
 }
 
 /**
- * Gets OpenRouter plugins based on the request.
+ * Gets OpenRouter server tools based on the request.
  * @param {import('express').Request} request
- * @returns {any[]} OpenRouter plugins
+ * @returns {any[]} OpenRouter server tools
  */
-function getOpenRouterPlugins(request) {
-    const plugins = [];
+function getOpenRouterServerTools(request) {
+    const tools = [];
 
     if (request.body.enable_web_search) {
-        plugins.push({ 'id': 'web' });
+        tools.push({ 'type': 'openrouter:web_search' });
     }
 
-    return plugins;
+    return tools;
 }
 
 /**
@@ -3327,7 +3327,6 @@ router.post('/generate', async function (request, response) {
             const includeReasoning = Boolean(request.body.include_reasoning);
             bodyParams = {
                 transforms: getOpenRouterTransforms(request),
-                plugins: getOpenRouterPlugins(request),
                 reasoning: {
                     exclude: !includeReasoning,
                 },
@@ -3690,9 +3689,19 @@ router.post('/generate', async function (request, response) {
             controller.abort();
         });
 
-        if (!isTextCompletion && Array.isArray(request.body.tools) && request.body.tools.length > 0) {
-            bodyParams['tools'] = request.body.tools;
-            bodyParams['tool_choice'] = request.body.tool_choice;
+        if (!isTextCompletion) {
+            const requestTools = Array.isArray(request.body.tools) ? request.body.tools : [];
+            const openRouterTools = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER ? getOpenRouterServerTools(request) : [];
+            const tools = [...openRouterTools, ...requestTools];
+
+            if (tools.length > 0) {
+                bodyParams['tools'] = tools;
+            }
+
+            if (requestTools.length > 0) {
+                bodyParams['tool_choice'] = request.body.tool_choice;
+            }
+
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT
                 && bodyParams.thinking?.type === 'enabled'
                 && !['auto', 'none', undefined].includes(bodyParams['tool_choice'])) {

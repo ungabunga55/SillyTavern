@@ -260,7 +260,7 @@
     "Send the system prompt for supported models. If disabled, the user message is added to the beginning of the prompt.": "为支持的模型发送系统提示词。如果禁用，则用户消息将添加到提示词的开头。",
     "Enable web search": "启用联网搜索",
     "Use search capabilities provided by the backend.": "使用后端提供的联网搜索功能。",
-    "openrouter_web_search_fee": "收费，每个提示词多收 0.02 美元。",
+    "openrouter_web_search_fee": "收费，每个提示词至少多收 0.005 美元。",
     "Enable function calling": "启用函数调用",
     "Supported by the current model": "当前模型支持",
     "Unsupported by the current model": "当前模型不支持",

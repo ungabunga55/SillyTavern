@@ -1989,7 +1989,7 @@ function calculateOpenRouterCost() {
     }
 
     if (oai_settings.enable_web_search) {
-        const webSearchCost = (0.02).toFixed(2);
+        const webSearchCost = (0.005).toFixed(3);
         cost = t`${cost} + $${webSearchCost}`;
     }
 
