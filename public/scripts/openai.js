@@ -3463,6 +3463,7 @@ export async function createGenerationParameters(settings, model, type, messages
         const isFireworksDeepSeekModel = /^deepseek-v4-(pro|flash)$/.test(fireworksNativeModel);
         const isFireworksMoonshotModel = fireworksNativeModel === 'kimi-k2p7-code';
         const isFireworksMiniMaxModel = /^minimax-(m2p7|m3)$/.test(fireworksNativeModel);
+        const isFireworksMiniMaxM3Model = fireworksNativeModel === 'minimax-m3';
 
         delete generate_data.top_k;
         delete generate_data.repetition_penalty;
@@ -3496,7 +3497,9 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.logit_bias;
             delete generate_data.seed;
             delete generate_data.n;
-            delete generate_data.reasoning_effort;
+            if (isFireworksMiniMaxM3Model) {
+                delete generate_data.reasoning_effort;
+            }
             if (Number.isFinite(generate_data.temperature)) {
                 generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
             }

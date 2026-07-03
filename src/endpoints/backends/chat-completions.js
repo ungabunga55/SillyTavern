@@ -514,9 +514,25 @@ function sanitizeFireworksRequestBody(requestBody, request) {
 
         switch (family) {
             case 'zai':
-                return nativeModel === 'glm-5p2' ? (effort === 'min' ? 'minimal' : effort) : undefined;
+                if (nativeModel === 'glm-5p2') {
+                    if (effort === 'min') return 'none';
+                    if (effort === 'xhigh') return 'max';
+                    return effort;
+                }
+                return effort === 'min' ? 'none' : undefined;
             case 'deepseek':
-                return effort === 'max' ? 'max' : 'high';
+                if (effort === 'min') return 'none';
+                if (['xhigh', 'max'].includes(effort)) return 'max';
+                return ['low', 'medium', 'high'].includes(effort) ? effort : 'high';
+            case 'qwen':
+                if (effort === 'min') return 'none';
+                if (['xhigh', 'max'].includes(effort)) return 'high';
+                return ['low', 'medium', 'high'].includes(effort) ? effort : undefined;
+            case 'minimax':
+                if (nativeModel !== 'minimax-m2p7') return undefined;
+                if (['low', 'medium', 'high'].includes(effort)) return effort;
+                if (['xhigh', 'max'].includes(effort)) return 'high';
+                return undefined;
             default:
                 return undefined;
         }
@@ -532,15 +548,15 @@ function sanitizeFireworksRequestBody(requestBody, request) {
         delete requestBody.stop;
     }
 
-    if (family === 'zai' || family === 'deepseek' || family === 'moonshot') {
+    if (family === 'zai' || family === 'deepseek' || family === 'moonshot' || family === 'qwen') {
         const thinkingEnabled = family === 'moonshot'
             ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning
             : includeReasoning;
-        requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
-
         const reasoningEffort = getReasoningEffort();
         if (reasoningEffort) {
             requestBody.reasoning_effort = reasoningEffort;
+        } else {
+            requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
         }
 
         if (family === 'moonshot') {
@@ -599,6 +615,10 @@ function sanitizeFireworksRequestBody(requestBody, request) {
 
     if (family === 'minimax') {
         requestBody.messages = postProcessPrompt(requestBody.messages, PROMPT_PROCESSING_TYPE.MERGE_TOOLS, getPromptNames(request));
+        const reasoningEffort = getReasoningEffort();
+        if (reasoningEffort) {
+            requestBody.reasoning_effort = reasoningEffort;
+        }
         delete requestBody.frequency_penalty;
         delete requestBody.presence_penalty;
         delete requestBody.logit_bias;
@@ -620,6 +640,7 @@ function getFireworksModelFamily(modelId) {
     if (/^glm-5p[12]$/.test(nativeModel)) return 'zai';
     if (/^deepseek-v4-(pro|flash)$/.test(nativeModel)) return 'deepseek';
     if (nativeModel === 'kimi-k2p7-code') return 'moonshot';
+    if (/^qwen3p\d-(?:plus|coder)$/.test(nativeModel)) return 'qwen';
     if (/^minimax-(m2p7|m3)$/.test(nativeModel)) return 'minimax';
     return 'generic';
 }
