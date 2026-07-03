@@ -3465,9 +3465,11 @@ export async function createGenerationParameters(settings, model, type, messages
         const isFireworksMiniMaxModel = /^minimax-(m2p7|m3)$/.test(fireworksNativeModel);
         const isFireworksMiniMaxM3Model = fireworksNativeModel === 'minimax-m3';
 
-        delete generate_data.top_k;
-        delete generate_data.repetition_penalty;
         delete generate_data.max_completion_tokens;
+
+        generate_data.top_k = settings.top_k_openai > 0 ? Math.min(Number(settings.top_k_openai), 100) : undefined;
+        generate_data.min_p = settings.min_p_openai > 0 ? clamp(Number(settings.min_p_openai), 0, 1.0) : undefined;
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai) !== 1 ? clamp(Number(settings.repetition_penalty_openai), 0, 2.0) : undefined;
 
         if (isFireworksZaiModel) {
             generate_data.top_p = generate_data.top_p || 0.01;
@@ -3488,6 +3490,7 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.top_p;
             delete generate_data.top_k;
             delete generate_data.repetition_penalty;
+            delete generate_data.min_p;
             delete generate_data.n;
         }
 
@@ -4380,6 +4383,21 @@ class Message {
 
         image = await this.compressImage(image);
 
+        if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
+            const existingImages = this.content.filter(part => part?.type === 'image_url');
+            if (existingImages.length >= 30) {
+                console.warn('Fireworks image adding skipped: maximum of 30 images per request exceeded.');
+                return;
+            }
+
+            const getDataUrlSize = (url) => isDataURL(url) ? url.length * 0.75 : 0;
+            const totalImageBytes = existingImages.reduce((total, part) => total + getDataUrlSize(part?.image_url?.url), 0) + getDataUrlSize(image);
+            if (totalImageBytes > 10 * 1024 * 1024) {
+                console.warn('Fireworks image adding skipped: total base64 image payload exceeds 10 MB.');
+                return;
+            }
+        }
+
         const quality = oai_settings.inline_image_quality || default_settings.inline_image_quality;
         this.content.push({ type: 'image_url', image_url: { 'url': image, 'detail': quality } });
 
@@ -4472,6 +4490,7 @@ class Message {
             chat_completion_sources.MAKERSUITE,
             chat_completion_sources.MISTRALAI,
             chat_completion_sources.VERTEXAI,
+            chat_completion_sources.FIREWORKS,
         ];
         const sizeThreshold = 2 * 1024 * 1024;
         const dataSize = image.length * 0.75;
@@ -7157,6 +7176,10 @@ export function isImageInliningSupported() {
             return visionSupportedModels.some(model => oai_settings.zai_model.includes(model));
         case chat_completion_sources.SILICONFLOW:
             return visionSupportedModels.some(model => oai_settings.siliconflow_model.includes(model));
+        case chat_completion_sources.FIREWORKS: {
+            const fireworksModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.fireworks_model);
+            return Boolean(fireworksModel?.supports_image_in ?? fireworksModel?.supportsImageInput);
+        }
         case chat_completion_sources.WORKERS_AI: {
             const waiModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.workers_ai_model);
             return Boolean(waiModel && Array.isArray(waiModel.properties) && waiModel.properties.some(p => p.property_id === 'vision' && p.value === 'true'));

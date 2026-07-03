@@ -678,7 +678,7 @@ export class ToolManager {
                 case chat_completion_sources.POLLINATIONS:
                     return currentModel.tools;
                 case chat_completion_sources.FIREWORKS:
-                    return currentModel.supports_tools;
+                    return currentModel.supports_tools ?? currentModel.supportsTools;
                 case chat_completion_sources.OPENROUTER:
                     return currentModel.supported_parameters?.includes('tools');
                 case chat_completion_sources.MISTRALAI:

@@ -89,18 +89,27 @@ const API_POLLINATIONS = 'https://gen.pollinations.ai/v1';
 const API_POLLINATIONS_ANON = 'https://text.pollinations.ai/v1';
 const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
+const API_FIREWORKS_MODELS = 'https://api.fireworks.ai/v1';
 const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/glm-5p2';
 const FIREWORKS_LEGACY_DEFAULT_MODEL = 'accounts/fireworks/models/kimi-k2-instruct';
 const FIREWORKS_SERVERLESS_MODELS = [
-    { id: 'accounts/fireworks/models/glm-5p2', supports_chat: true },
-    { id: 'accounts/fireworks/models/deepseek-v4-pro', supports_chat: true },
-    { id: 'accounts/fireworks/models/minimax-m2p7', supports_chat: true },
-    { id: 'accounts/fireworks/models/glm-5p1', supports_chat: true },
-    { id: 'accounts/fireworks/models/deepseek-v4-flash', supports_chat: true },
-    { id: 'accounts/fireworks/models/kimi-k2p7-code', supports_chat: true },
-    { id: 'accounts/fireworks/models/qwen3p7-plus', supports_chat: true },
-    { id: 'accounts/fireworks/models/nemotron-3-ultra-nvfp4', supports_chat: true },
-    { id: 'accounts/fireworks/models/minimax-m3', supports_chat: true },
+    { id: 'accounts/fireworks/models/glm-5p2', display_name: 'GLM 5.2', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
+    { id: 'accounts/fireworks/models/deepseek-v4-pro', display_name: 'DeepSeek-V4-Pro', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
+    { id: 'accounts/fireworks/models/minimax-m2p7', display_name: 'MiniMax M2.7', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 196608 },
+    { id: 'accounts/fireworks/models/glm-5p1', display_name: 'GLM 5.1', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 202752 },
+    { id: 'accounts/fireworks/models/deepseek-v4-flash', display_name: 'DeepSeek-V4-Flash', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
+    { id: 'accounts/fireworks/models/kimi-k2p7-code', display_name: 'Kimi K2.7 Code', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/models/kimi-k2p6', display_name: 'Kimi K2.6', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/models/qwen3p7-plus', display_name: 'Qwen3.7 Plus', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true },
+    { id: 'accounts/fireworks/models/qwen3p6-plus', display_name: 'Qwen3.6 Plus', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true },
+    { id: 'accounts/fireworks/models/nemotron-3-ultra-nvfp4', display_name: 'NVIDIA Nemotron 3 Ultra NVFP4', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/models/minimax-m3', display_name: 'MiniMax M3', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 512000 },
+    { id: 'accounts/fireworks/models/gpt-oss-120b', display_name: 'OpenAI gpt-oss-120b', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 131072 },
+    { id: 'accounts/fireworks/models/gpt-oss-20b', display_name: 'OpenAI gpt-oss-20b', supports_chat: true, supports_tools: false, supports_image_in: false, supports_serverless: true, context_length: 131072 },
+    { id: 'accounts/fireworks/routers/kimi-k2p7-code-fast', display_name: 'Kimi K2.7 Code Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/routers/kimi-k2p6-fast', display_name: 'Kimi K2.6 Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/routers/glm-5p2-fast', display_name: 'GLM 5.2 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
+    { id: 'accounts/fireworks/routers/glm-5p1-fast', display_name: 'GLM 5.1 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 202752 },
 ];
 const API_COMETAPI = 'https://api.cometapi.com/v1';
 const API_ZAI_COMMON = 'https://api.z.ai/api/paas/v4';
@@ -496,6 +505,102 @@ function getAtlascloudModelFamily(modelId) {
 }
 
 /**
+ * Normalizes a Fireworks model record to the frontend's OpenAI-compatible metadata shape.
+ * @param {Record<string, any>} model Fireworks model record or static model record
+ * @returns {Record<string, any>} Normalized model metadata
+ */
+function normalizeFireworksModel(model) {
+    const id = String(model?.id || model?.name || '').trim();
+    const isEmbeddingModel = model?.kind === 'EMBEDDING_MODEL' || /(?:embedding|reranker)/i.test(id);
+    const supportsChat = Boolean(model?.supports_chat ?? (model?.conversationConfig && !isEmbeddingModel));
+    const contextLength = model?.context_length ?? model?.contextLength;
+    const displayName = model?.display_name ?? model?.displayName;
+    const supportsTools = model?.supports_tools ?? model?.supportsTools;
+    const supportsImageInput = model?.supports_image_in ?? model?.supportsImageInput;
+    const supportsServerless = model?.supports_serverless ?? model?.supportsServerless;
+    const deprecationDate = model?.deprecation_date ?? model?.deprecationDate;
+    const defaultSamplingParams = model?.default_sampling_params ?? model?.defaultSamplingParams;
+
+    return {
+        id,
+        display_name: displayName,
+        supports_chat: supportsChat,
+        supports_tools: Boolean(supportsTools),
+        supports_image_in: Boolean(supportsImageInput),
+        supports_serverless: Boolean(supportsServerless ?? true),
+        context_length: Number.isFinite(Number(contextLength)) && Number(contextLength) > 0 ? Number(contextLength) : undefined,
+        deprecation_date: deprecationDate,
+        default_sampling_params: defaultSamplingParams,
+    };
+}
+
+/**
+ * Merges dynamic Fireworks model metadata with static fallbacks and router supplements.
+ * @param {Record<string, any>[]} models Dynamic model records from Fireworks
+ * @returns {Record<string, any>[]} Chat-capable model metadata records
+ */
+function mergeFireworksModels(models) {
+    const merged = new Map();
+    for (const model of [...models, ...FIREWORKS_SERVERLESS_MODELS]) {
+        const normalized = normalizeFireworksModel(model);
+        if (!normalized.id || !normalized.supports_chat) {
+            continue;
+        }
+        const existing = merged.get(normalized.id) || {};
+        merged.set(normalized.id, { ...normalized, ...existing });
+    }
+    return Array.from(merged.values());
+}
+
+/**
+ * Fetches Fireworks serverless model metadata. Falls back only for non-auth endpoint failures.
+ * @param {string} apiKey Fireworks API key
+ * @returns {Promise<{ models: Record<string, any>[], fallback: boolean }>}
+ */
+async function fetchFireworksServerlessModels(apiKey) {
+    const models = [];
+    let pageToken = '';
+
+    for (let page = 0; page < 10; page++) {
+        const modelsUrl = new URL('/v1/accounts/fireworks/models', API_FIREWORKS_MODELS);
+        modelsUrl.searchParams.set('filter', 'supports_serverless=true');
+        modelsUrl.searchParams.set('pageSize', '200');
+        if (pageToken) {
+            modelsUrl.searchParams.set('pageToken', pageToken);
+        }
+
+        const response = await fetch(modelsUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': 'Bearer ' + apiKey,
+            },
+        });
+
+        if (!response.ok) {
+            if ([401, 403].includes(response.status)) {
+                const error = new Error(`Fireworks AI models endpoint failed: ${response.status} ${response.statusText}`);
+                error['status'] = response.status;
+                throw error;
+            }
+            console.warn('Fireworks AI models endpoint failed, using static fallback:', response.status, response.statusText);
+            return { models: mergeFireworksModels([]), fallback: true };
+        }
+
+        /** @type {any} */
+        const data = await response.json();
+        if (Array.isArray(data?.models)) {
+            models.push(...data.models);
+        }
+        pageToken = String(data?.nextPageToken || '');
+        if (!pageToken) {
+            break;
+        }
+    }
+
+    return { models: mergeFireworksModels(models), fallback: false };
+}
+
+/**
  * Applies direct-provider-derived request rules for Fireworks serverless models.
  * @param {Record<string, any>} requestBody Request payload to mutate
  * @param {express.Request} request Express request
@@ -540,8 +645,6 @@ function sanitizeFireworksRequestBody(requestBody, request) {
 
     delete requestBody.prompt;
     delete requestBody.max_completion_tokens;
-    delete requestBody.top_k;
-    delete requestBody.repetition_penalty;
     delete requestBody.reasoning_effort;
 
     if (Array.isArray(requestBody.stop) && requestBody.stop.length === 0) {
@@ -603,6 +706,8 @@ function sanitizeFireworksRequestBody(requestBody, request) {
             delete requestBody.frequency_penalty;
             delete requestBody.presence_penalty;
             delete requestBody.top_p;
+            delete requestBody.top_k;
+            delete requestBody.repetition_penalty;
             delete requestBody.n;
         }
 
@@ -2786,7 +2891,15 @@ router.post('/status', async function (request, statusResponse) {
                 console.warn('Fireworks AI API key is missing.');
                 return statusResponse.status(400).send({ error: true });
             }
-            return statusResponse.send({ data: FIREWORKS_SERVERLESS_MODELS });
+            try {
+                const { models, fallback } = await fetchFireworksServerlessModels(apiKey);
+                console.debug('Available Fireworks AI models:', models.map(m => m.id));
+                return statusResponse.send({ data: models, fallback });
+            } catch (error) {
+                console.warn('Fireworks AI models endpoint failed:', error.message || error);
+                const status = error['status'] || 500;
+                return statusResponse.status(status).send({ error: true });
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MAKERSUITE) {
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE, request.body.secret_id);
             apiUrl = trimTrailingSlash(request.body.reverse_proxy || API_MAKERSUITE);
@@ -3372,6 +3485,12 @@ router.post('/generate', async function (request, response) {
                         strict: request.body.json_schema.strict ?? true,
                     },
                 };
+            }
+            if (request.body.min_p !== undefined) {
+                bodyParams['min_p'] = request.body.min_p;
+            }
+            if (request.body.typical_p !== undefined) {
+                bodyParams['typical_p'] = request.body.typical_p;
             }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NANOGPT) {
             apiUrl = API_NANOGPT;
