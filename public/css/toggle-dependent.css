@@ -543,6 +543,25 @@ label[for="bind_preset_to_connection"]:has(input:checked) {
     color: var(--golden);
 }
 
+#openai_settings .openrouter-sampler-support-indicator {
+    margin-left: 0.35em;
+    font-size: 0.85em;
+    cursor: help;
+}
+
+#openai_settings .openrouter-sampler-supported .openrouter-sampler-support-indicator {
+    color: var(--active);
+}
+
+#openai_settings .openrouter-sampler-unsupported .openrouter-sampler-support-indicator {
+    color: var(--golden);
+}
+
+#openai_settings .openrouter-sampler-unsupported .range-block-range-and-counter,
+#openai_settings .openrouter-sampler-unsupported>.wide100p {
+    opacity: 0.65;
+}
+
 #advanced-formatting-cc-notice {
     display: none;
     gap: 5px;

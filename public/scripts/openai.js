@@ -577,6 +577,24 @@ export const settingsToUpdate = {
     extensions: ['#NULL_SELECTOR', 'extensions', false, false],
 };
 
+/**
+ * OpenRouter reports these API parameter names in each model's supported_parameters array.
+ * The selectors map them to the controls shown in the chat completion sampler panel.
+ * @type {Array<{parameter: string, selector: string}>}
+ */
+const openRouterSamplerParameterControls = [
+    { parameter: 'max_tokens', selector: '#openai_max_tokens' },
+    { parameter: 'temperature', selector: '#temp_openai' },
+    { parameter: 'frequency_penalty', selector: '#freq_pen_openai' },
+    { parameter: 'presence_penalty', selector: '#pres_pen_openai' },
+    { parameter: 'top_k', selector: '#top_k_openai' },
+    { parameter: 'top_p', selector: '#top_p_openai' },
+    { parameter: 'repetition_penalty', selector: '#repetition_penalty_openai' },
+    { parameter: 'min_p', selector: '#min_p_openai' },
+    { parameter: 'top_a', selector: '#top_a_openai' },
+    { parameter: 'seed', selector: '#seed_openai' },
+];
+
 const default_settings = {
     preset_settings_openai: 'Default',
     temp_openai: 1.0,
@@ -1994,6 +2012,68 @@ function calculateOpenRouterCost() {
     }
 
     $('#openrouter_max_prompt_cost').text(cost);
+}
+
+/**
+ * Get the OpenRouter supported parameter list for the currently selected model.
+ * @returns {Set<string>|null} Supported parameters, or null when unavailable
+ */
+function getCurrentOpenRouterSupportedParameters() {
+    if (oai_settings.chat_completion_source !== chat_completion_sources.OPENROUTER) {
+        return null;
+    }
+
+    const model = getChatCompletionModel();
+    if (!model || !Array.isArray(model_list)) {
+        return null;
+    }
+
+    const modelInfo = model_list.find(m => m.id === model);
+    if (!Array.isArray(modelInfo?.supported_parameters)) {
+        return null;
+    }
+
+    return new Set(modelInfo.supported_parameters);
+}
+
+function updateOpenRouterSamplerSupportIndicators() {
+    const supportedParameters = getCurrentOpenRouterSupportedParameters();
+
+    for (const { parameter, selector } of openRouterSamplerParameterControls) {
+        const $block = $(selector).closest('.range-block');
+        if (!$block.length) {
+            continue;
+        }
+
+        $block
+            .removeClass('openrouter-sampler-supported openrouter-sampler-unsupported')
+            .removeAttr('data-openrouter-sampler-parameter')
+            .removeAttr('data-openrouter-sampler-supported');
+        $block.find('.openrouter-sampler-support-indicator').remove();
+
+        if (!supportedParameters) {
+            continue;
+        }
+
+        const isSupported = supportedParameters.has(parameter);
+        const statusText = isSupported
+            ? t`OpenRouter lists this parameter as supported for the selected model.`
+            : t`OpenRouter does not list this parameter as supported for the selected model. It may be ignored or rejected by the provider.`;
+        const $title = $block.children('.range-block-title').first();
+
+        $block
+            .addClass(isSupported ? 'openrouter-sampler-supported' : 'openrouter-sampler-unsupported')
+            .attr('data-openrouter-sampler-parameter', parameter)
+            .attr('data-openrouter-sampler-supported', String(isSupported));
+
+        if ($title.length) {
+            const $indicator = $('<span></span>')
+                .addClass(`openrouter-sampler-support-indicator fa-solid ${isSupported ? 'fa-circle-check' : 'fa-triangle-exclamation'}`)
+                .attr('title', statusText)
+                .attr('aria-label', statusText);
+            $title.append($indicator);
+        }
+    }
 }
 
 function getElectronHubModelTemplate(option) {
@@ -6835,6 +6915,7 @@ async function onModelChange() {
     $('#openai_max_context_counter').attr('max', Number($('#openai_max_context').attr('max')));
 
     saveSettingsDebounced();
+    updateOpenRouterSamplerSupportIndicators();
     updateFeatureSupportFlags();
     eventSource.emit(event_types.CHATCOMPLETION_MODEL_CHANGED, value);
 }
@@ -6995,6 +7076,7 @@ function toggleChatCompletionForms() {
     });
 
     setToolReasoningControls();
+    updateOpenRouterSamplerSupportIndicators();
 }
 
 async function testApiConnection() {
