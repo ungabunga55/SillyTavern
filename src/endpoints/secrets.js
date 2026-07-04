@@ -67,6 +67,7 @@ export const SECRET_KEYS = {
     ZAI: 'api_key_zai',
     SILICONFLOW: 'api_key_siliconflow',
     ATLASCLOUD: 'api_key_atlascloud',
+    REQUESTY: 'api_key_requesty',
     ELEVENLABS: 'api_key_elevenlabs',
     POLLINATIONS: 'api_key_pollinations',
     VOLCENGINE_APP_ID: 'volcengine_app_id',

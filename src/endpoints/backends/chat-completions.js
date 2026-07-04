@@ -17,6 +17,7 @@ import {
     OPENAI_REASONING_EFFORT_MODELS,
     OPENAI_VERBOSITY_MODELS,
     OPENROUTER_HEADERS,
+    REQUESTY_HEADERS,
     VERTEX_SAFETY,
     SILICONFLOW_ENDPOINT,
     MINIMAX_ENDPOINT,
@@ -120,6 +121,7 @@ const API_ATLASCLOUD = 'https://api.atlascloud.ai/v1';
 const API_MINIMAX = 'https://api.minimax.io/v1';
 const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
+const API_REQUESTY = 'https://router.requesty.ai/v1';
 const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
@@ -1238,6 +1240,21 @@ function getOpenRouterServerTools(request) {
 
     if (request.body.enable_web_search) {
         tools.push({ 'type': 'openrouter:web_search' });
+    }
+
+    return tools;
+}
+
+/**
+ * Gets Requesty server tools based on the request.
+ * @param {import('express').Request} request
+ * @returns {any[]} Requesty server tools
+ */
+function getRequestyServerTools(request) {
+    const tools = [];
+
+    if (request.body.enable_web_search) {
+        tools.push({ type: 'web_search' });
     }
 
     return tools;
@@ -2824,6 +2841,10 @@ router.post('/status', async function (request, statusResponse) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
             // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
             headers = { ...OPENROUTER_HEADERS };
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
+            apiUrl = API_REQUESTY;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.REQUESTY, request.body.secret_id);
+            headers = { ...REQUESTY_HEADERS };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MISTRALAI) {
             apiUrl = new URL(request.body.reverse_proxy || API_MISTRAL).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MISTRALAI, request.body.secret_id);
@@ -3411,6 +3432,12 @@ router.post('/generate', async function (request, response) {
             if (isGemini) {
                 bodyParams['safety_settings'] = GEMINI_SAFETY;
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
+            apiUrl = API_REQUESTY;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.REQUESTY, request.body.secret_id);
+            headers = { ...REQUESTY_HEADERS };
+            bodyParams = {};
+            embedOpenRouterMedia(request.body.messages, { audio: true, video: false });
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {
             apiUrl = request.body.custom_url;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.CUSTOM, request.body.secret_id);
@@ -3655,8 +3682,11 @@ router.post('/generate', async function (request, response) {
             return response.status(400).send({ error: true });
         }
 
-        // A few of OpenAIs reasoning models support reasoning effort
-        if (!useOpenAIResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
+        // Some OpenAI-compatible providers support reasoning effort.
+        if (!useOpenAIResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI, CHAT_COMPLETION_SOURCES.REQUESTY].includes(request.body.chat_completion_source)) {
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
+                bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+            }
             if (OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
                 bodyParams['reasoning_effort'] = OPENAI_FIXED_REASONING_EFFORT[request.body.model] ?? OPENAI_REASONING_EFFORT_MAP[request.body.reasoning_effort] ?? request.body.reasoning_effort;
             }
@@ -3697,7 +3727,8 @@ router.post('/generate', async function (request, response) {
         if (!isTextCompletion) {
             const requestTools = Array.isArray(request.body.tools) ? request.body.tools : [];
             const openRouterTools = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER ? getOpenRouterServerTools(request) : [];
-            const tools = [...openRouterTools, ...requestTools];
+            const requestyTools = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY ? getRequestyServerTools(request) : [];
+            const tools = [...openRouterTools, ...requestyTools, ...requestTools];
 
             if (tools.length > 0) {
                 bodyParams['tools'] = tools;

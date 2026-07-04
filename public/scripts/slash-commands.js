@@ -6253,6 +6253,7 @@ function getModelOptions(quiet) {
         { id: 'model_openai_select', api: 'openai', type: chat_completion_sources.OPENAI },
         { id: 'model_claude_select', api: 'openai', type: chat_completion_sources.CLAUDE },
         { id: 'model_openrouter_select', api: 'openai', type: chat_completion_sources.OPENROUTER },
+        { id: 'model_requesty_select', api: 'openai', type: chat_completion_sources.REQUESTY },
         { id: 'model_ai21_select', api: 'openai', type: chat_completion_sources.AI21 },
         { id: 'model_google_select', api: 'openai', type: chat_completion_sources.MAKERSUITE },
         { id: 'model_vertexai_select', api: 'openai', type: chat_completion_sources.VERTEXAI },

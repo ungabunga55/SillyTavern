@@ -681,6 +681,8 @@ export class ToolManager {
                     return currentModel.supports_tools ?? currentModel.supportsTools;
                 case chat_completion_sources.OPENROUTER:
                     return currentModel.supported_parameters?.includes('tools');
+                case chat_completion_sources.REQUESTY:
+                    return currentModel.supports_tools ?? currentModel.supports_function_calling ?? true;
                 case chat_completion_sources.MISTRALAI:
                     return currentModel.capabilities?.function_calling;
                 case chat_completion_sources.AIMLAPI:
@@ -700,6 +702,7 @@ export class ToolManager {
             chat_completion_sources.MISTRALAI,
             chat_completion_sources.CLAUDE,
             chat_completion_sources.OPENROUTER,
+            chat_completion_sources.REQUESTY,
             chat_completion_sources.AIMLAPI,
             chat_completion_sources.GROQ,
             chat_completion_sources.COHERE,

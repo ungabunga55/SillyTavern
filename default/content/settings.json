@@ -625,6 +625,7 @@
         "claude_model": "claude-sonnet-4-5",
         "ai21_model": "jamba-large",
         "openrouter_model": "OR_Website",
+        "requesty_model": "openai/gpt-4o-mini",
         "reverse_proxy": "",
         "chat_completion_source": "openai",
         "max_context_unlocked": false,

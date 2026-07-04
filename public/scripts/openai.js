@@ -209,6 +209,7 @@ export const chat_completion_sources = {
     ATLASCLOUD: 'atlascloud',
     WORKERS_AI: 'workers_ai',
     MINIMAX: 'minimax',
+    REQUESTY: 'requesty',
     FEATHERLESS: 'featherless',
 };
 
@@ -484,6 +485,7 @@ export const settingsToUpdate = {
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
+    requesty_model: ['#model_requesty_select', 'requesty_model', false, true],
     openrouter_use_fallback: ['#openrouter_use_fallback', 'openrouter_use_fallback', true, true],
     openrouter_providers: ['#openrouter_providers_chat', 'openrouter_providers', false, true],
     openrouter_quantizations: ['#openrouter_quantizations_chat', 'openrouter_quantizations', false, true],
@@ -669,6 +671,7 @@ const default_settings = {
     custom_exclude_body: '',
     custom_include_headers: '',
     openrouter_model: openrouter_website_model,
+    requesty_model: 'openai/gpt-4o-mini',
     openrouter_use_fallback: false,
     openrouter_providers: [],
     openrouter_quantizations: [],
@@ -1916,6 +1919,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.vertexai_model;
         case chat_completion_sources.OPENROUTER:
             return settings.openrouter_model !== openrouter_website_model ? settings.openrouter_model : null;
+        case chat_completion_sources.REQUESTY:
+            return settings.requesty_model;
         case chat_completion_sources.AI21:
             return settings.ai21_model;
         case chat_completion_sources.MISTRALAI:
@@ -2295,6 +2300,21 @@ function saveModelList(data) {
         }
 
         $('#model_openrouter_select').val(oai_settings.openrouter_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.REQUESTY) {
+        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.REQUESTY);
+        $('#model_requesty_select').empty();
+        model_list.forEach((model) => {
+            $('#model_requesty_select').append($('<option>', { value: model.id, text: model.id }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.requesty_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.requesty_model)) {
+            oai_settings.requesty_model = model_list[0].id;
+        }
+
+        $('#model_requesty_select').val(oai_settings.requesty_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.OPENAI) {
@@ -2916,6 +2936,18 @@ function sortModelsBy(data, property, source) {
                     return a?.name && b?.name ? a.name.localeCompare(b.name) : 0;
                 }
             });
+        case chat_completion_sources.REQUESTY:
+            return data.sort((a, b) => {
+                if (property === 'context_length') {
+                    return (b.context_window || b.context_length || 0) - (a.context_window || a.context_length || 0);
+                } else if (property === 'pricing.input' || property === 'pricing.prompt') {
+                    return parseFloat(a.input_price ?? a.pricing?.prompt ?? 0) - parseFloat(b.input_price ?? b.pricing?.prompt ?? 0);
+                } else if (property === 'pricing.output' || property === 'pricing.completion') {
+                    return parseFloat(a.output_price ?? a.pricing?.completion ?? 0) - parseFloat(b.output_price ?? b.pricing?.completion ?? 0);
+                } else {
+                    return (a?.id || '').localeCompare(b?.id || '');
+                }
+            });
         case chat_completion_sources.CHUTES:
             return data.sort((a, b) => {
                 if (property === 'context_length') {
@@ -2979,6 +3011,7 @@ function sortModelsBy(data, property, source) {
 function groupModelsByVendor(array, source) {
     switch (source) {
         case chat_completion_sources.OPENROUTER:
+        case chat_completion_sources.REQUESTY:
             return array.reduce((acc, curr) => {
                 const vendor = curr.id.split('/')[0];
                 if (!acc.has(vendor)) {
@@ -3048,6 +3081,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.MISTRALAI,
         chat_completion_sources.AIMLAPI,
         chat_completion_sources.OPENROUTER,
+        chat_completion_sources.REQUESTY,
         chat_completion_sources.POLLINATIONS,
         chat_completion_sources.PERPLEXITY,
         chat_completion_sources.COMETAPI,
@@ -3123,6 +3157,21 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.xhigh:
                 case reasoning_effort_types.max:
                     return reasoning_effort_types.high;
+                default:
+                    return settings.reasoning_effort;
+            }
+        }
+
+        if (settings.chat_completion_source === chat_completion_sources.REQUESTY) {
+            if (!settings.show_thoughts) {
+                return 'none';
+            }
+
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.xhigh:
+                    return reasoning_effort_types.max;
                 default:
                     return settings.reasoning_effort;
             }
@@ -4102,7 +4151,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -6371,6 +6420,16 @@ async function onModelChange() {
         syncOpenRouterProvidersForModel(value, '#openrouter_providers_chat');
     }
 
+    if ($(this).is('#model_requesty_select')) {
+        if (!value) {
+            console.debug('Null Requesty model selected. Ignoring.');
+            return;
+        }
+
+        console.log('Requesty model changed to', value);
+        oai_settings.requesty_model = value;
+    }
+
     if ($(this).is('#model_ai21_select')) {
         if (value === '' || value.startsWith('j2-')) {
             value = 'jamba-large';
@@ -6944,6 +7003,7 @@ async function onConnectButtonClick(e) {
     /** @type {Object.<string, {key: string, selector: string, proxy?: boolean, keyless?: boolean}>} */
     const apiSourceConfig = {
         [chat_completion_sources.OPENROUTER]: { key: SECRET_KEYS.OPENROUTER, selector: '#api_key_openrouter', proxy: false },
+        [chat_completion_sources.REQUESTY]: { key: SECRET_KEYS.REQUESTY, selector: '#api_key_requesty', proxy: false },
         [chat_completion_sources.MAKERSUITE]: { key: SECRET_KEYS.MAKERSUITE, selector: '#api_key_makersuite', proxy: true },
         [chat_completion_sources.CLAUDE]: { key: SECRET_KEYS.CLAUDE, selector: '#api_key_claude', proxy: true },
         [chat_completion_sources.OPENAI]: { key: SECRET_KEYS.OPENAI, selector: '#api_key_openai', proxy: true },
@@ -7021,6 +7081,8 @@ function toggleChatCompletionForms() {
         onVertexAIAuthModeChange.call($('#vertexai_auth_mode')[0]);
     } else if (oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER) {
         $('#model_openrouter_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.REQUESTY) {
+        $('#model_requesty_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.AI21) {
         $('#model_ai21_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
@@ -7232,6 +7294,10 @@ export function isImageInliningSupported() {
             return visionSupportedModels.some(model => oai_settings.claude_model.includes(model));
         case chat_completion_sources.OPENROUTER:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('image'));
+        case chat_completion_sources.REQUESTY: {
+            const requestyModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.requesty_model);
+            return Boolean(requestyModel?.supports_vision) || visionSupportedModels.some(model => String(oai_settings.requesty_model || '').includes(model));
+        }
         case chat_completion_sources.CUSTOM:
             return true;
         case chat_completion_sources.MISTRALAI:
@@ -8304,6 +8370,7 @@ export function initOpenAI() {
     $('#vertexai_validate_service_account').on('click', onVertexAIValidateServiceAccount);
     $('#vertexai_clear_service_account').on('click', onVertexAIClearServiceAccount);
     $('#model_openrouter_select').on('change', onModelChange);
+    $('#model_requesty_select').on('change', onModelChange);
     $('#model_ai21_select').on('change', onModelChange);
     $('#model_mistralai_select').on('change', onModelChange);
     $('#model_cohere_select').on('change', onModelChange);

@@ -211,6 +211,7 @@ export const CHAT_COMPLETION_SOURCES = {
     SILICONFLOW: 'siliconflow',
     ATLASCLOUD: 'atlascloud',
     MINIMAX: 'minimax',
+    REQUESTY: 'requesty',
     WORKERS_AI: 'workers_ai',
     FEATHERLESS: 'featherless',
 };
@@ -362,6 +363,11 @@ export const AVATAR_HEIGHT = 768;
 export const DEFAULT_AVATAR_PATH = './public/img/ai4.png';
 
 export const OPENROUTER_HEADERS = {
+    'HTTP-Referer': 'https://sillytavern.app',
+    'X-Title': 'SillyTavern',
+};
+
+export const REQUESTY_HEADERS = {
     'HTTP-Referer': 'https://sillytavern.app',
     'X-Title': 'SillyTavern',
 };

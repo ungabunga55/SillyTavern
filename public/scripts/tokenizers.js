@@ -699,6 +699,36 @@ export function getTokenizerModel() {
         return 'gpt-3.5-turbo';
     }
 
+    if (oai_settings.chat_completion_source == chat_completion_sources.REQUESTY && oai_settings.requesty_model) {
+        const model = oai_settings.requesty_model.toLowerCase();
+
+        if (model.includes('gpt-4o') || model.includes('gpt-4.1') || model.includes('gpt-4.5') || model.includes('gpt-5') || model.includes('gpt-oss')) {
+            return gpt4oTokenizer;
+        } else if (model.includes('gpt-4')) {
+            return gpt4Tokenizer;
+        } else if (model.includes('gpt-3.5-turbo')) {
+            return turboTokenizer;
+        } else if (model.includes('claude')) {
+            return claudeTokenizer;
+        } else if (model.includes('deepseek')) {
+            return deepseekTokenizer;
+        } else if (model.includes('qwen') || model.includes('qwq') || model.includes('kimi') || model.includes('glm')) {
+            return qwen2Tokenizer;
+        } else if (model.includes('gemini') || model.includes('gemma')) {
+            return gemmaTokenizer;
+        } else if (model.includes('mistral') || model.includes('mixtral')) {
+            return mistralTokenizer;
+        } else if (model.includes('llama-3') || model.includes('llama3') || model.includes('llama-4')) {
+            return llama3Tokenizer;
+        } else if (model.includes('llama')) {
+            return llamaTokenizer;
+        } else if (model.includes('command-a')) {
+            return commandATokenizer;
+        } else if (model.includes('command-r')) {
+            return commandRTokenizer;
+        }
+    }
+
     if (oai_settings.chat_completion_source == chat_completion_sources.FEATHERLESS && oai_settings.featherless_model) {
         const model = oai_settings.featherless_model.toLowerCase();
 
