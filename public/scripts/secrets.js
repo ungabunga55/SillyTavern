@@ -287,11 +287,20 @@ function getActiveSecretLabel(key) {
     return '';
 }
 
+export let secret_settings = {
+    allowKeysExposure: false,
+    autoRotateKeys: false,
+};
+
+function updateSecretSettingsDisplay() {
+    $('#auto_rotate_api_keys').prop('checked', !!secret_settings.autoRotateKeys);
+}
+
 /**
- * Checks if secrets can be viewed based on server configuration.
- * @returns {Promise<boolean|null>} A boolean value, or null if the request fails.
+ * Reads the current saved-key settings from the server.
+ * @returns {Promise<typeof secret_settings|null>} Saved-key settings, or null if the request fails.
  */
-export async function canViewSecrets() {
+export async function readSecretSettings() {
     try {
         const response = await fetch('/api/secrets/settings', {
             method: 'POST',
@@ -302,12 +311,48 @@ export async function canViewSecrets() {
             return null;
         }
 
-        const data = await response.json();
-        return data?.allowKeysExposure === true;
+        secret_settings = await response.json();
+        updateSecretSettingsDisplay();
+        return secret_settings;
     } catch (error) {
         console.error('Error getting secrets settings:', error);
         return null;
     }
+}
+
+/**
+ * Updates saved-key settings on the server.
+ * @param {Partial<typeof secret_settings>} settings Settings to update
+ * @returns {Promise<typeof secret_settings|null>} Updated saved-key settings, or null if the request fails.
+ */
+async function writeSecretSettings(settings) {
+    try {
+        const response = await fetch('/api/secrets/settings', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(settings),
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        secret_settings = await response.json();
+        updateSecretSettingsDisplay();
+        return secret_settings;
+    } catch (error) {
+        console.error('Error writing secrets settings:', error);
+        return null;
+    }
+}
+
+/**
+ * Checks if secrets can be viewed based on server configuration.
+ * @returns {Promise<boolean|null>} A boolean value, or null if the request fails.
+ */
+export async function canViewSecrets() {
+    const settings = await readSecretSettings();
+    return settings?.allowKeysExposure === true;
 }
 
 async function viewSecrets() {
@@ -1141,6 +1186,15 @@ function registerSecretSlashCommands() {
 
 export async function initSecrets() {
     $('#viewSecrets').on('click', viewSecrets);
+    $('#auto_rotate_api_keys').on('input', async function () {
+        const enabled = !!$(this).prop('checked');
+        const settings = await writeSecretSettings({ autoRotateKeys: enabled });
+        if (!settings) {
+            $(this).prop('checked', !enabled);
+            toastr.error(t`Could not update saved-key rotation setting.`);
+        }
+    });
+    await readSecretSettings();
     $(document).on('click', '.manage-api-keys', async function () {
         const key = $(this).data('key');
         if (!key || !Object.values(SECRET_KEYS).includes(key)) {

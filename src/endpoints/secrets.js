@@ -97,6 +97,7 @@ export const SECRET_KEYS = {
 /**
  * @typedef {{[key: string]: SecretValue[]}} SecretKeys
  * @typedef {{[key: string]: string}} FlatSecretKeys
+ * @typedef {{autoRotateKeys: boolean}} SecretSettings
  */
 
 // These are the keys that are safe to expose, even if allowKeysExposure is false
@@ -106,6 +107,12 @@ const EXPORTABLE_KEYS = [
     SECRET_KEYS.ONERING_URL,
     SECRET_KEYS.DEEPLX_URL,
 ];
+
+const SECRET_SETTINGS_KEY = '_settings';
+const DEFAULT_SECRET_SETTINGS = Object.freeze({
+    autoRotateKeys: false,
+});
+const ROTATABLE_SECRET_KEYS = new Set(Object.values(SECRET_KEYS).filter(key => key !== SECRET_KEYS._MIGRATED));
 
 export const allowKeysExposure = !!getConfigValue('allowKeysExposure', false, 'boolean');
 
@@ -172,6 +179,21 @@ export class SecretManager {
      */
     _validateSecretKey(secrets, key) {
         return Object.hasOwn(secrets, key) && Array.isArray(secrets[key]);
+    }
+
+    /**
+     * Gets normalized settings from the secrets file.
+     * @private
+     * @param {SecretKeys} secrets Secrets file contents
+     * @returns {SecretSettings} Secret settings
+     */
+    _getSettings(secrets) {
+        const settings = secrets[SECRET_SETTINGS_KEY];
+        const isSettingsObject = settings && typeof settings === 'object' && !Array.isArray(settings);
+        return {
+            ...DEFAULT_SECRET_SETTINGS,
+            autoRotateKeys: isSettingsObject && settings.autoRotateKeys === true,
+        };
     }
 
     /**
@@ -265,9 +287,10 @@ export class SecretManager {
      * Reads the active secret value for a given key
      * @param {string} key Secret key
      * @param {string?} id ID of the secret to read (optional)
+     * @param {{rotate?: boolean}} options Read options
      * @returns {string} Secret value or empty string if not found
      */
-    readSecret(key, id) {
+    readSecret(key, id, { rotate = true } = {}) {
         if (!fs.existsSync(this.filePath)) {
             return '';
         }
@@ -276,11 +299,45 @@ export class SecretManager {
         const secretArray = secrets[key];
 
         if (Array.isArray(secretArray) && secretArray.length > 0) {
-            const activeSecret = secretArray.find(s => id ? s.id === id : s.active);
+            const activeIndex = secretArray.findIndex(s => id ? s.id === id : s.active);
+            const activeSecret = secretArray[activeIndex];
+
+            if (activeSecret && rotate && !id && secretArray.length > 1 && ROTATABLE_SECRET_KEYS.has(key) && this._getSettings(secrets).autoRotateKeys) {
+                const nextIndex = (activeIndex + 1) % secretArray.length;
+                this._deactivateAllSecrets(secretArray);
+                secretArray[nextIndex].active = true;
+                this._writeSecretsFile(secrets);
+            }
+
             return activeSecret?.value || '';
         }
 
         return '';
+    }
+
+    /**
+     * Gets the saved-key settings.
+     * @returns {SecretSettings} Secret settings
+     */
+    getSettings() {
+        const secrets = this._readSecretsFile();
+        return this._getSettings(secrets);
+    }
+
+    /**
+     * Updates the saved-key settings.
+     * @param {Partial<SecretSettings>} settings Settings to update
+     * @returns {SecretSettings} Updated secret settings
+     */
+    setSettings(settings) {
+        const secrets = this._readSecretsFile();
+        const currentSettings = this._getSettings(secrets);
+        secrets[SECRET_SETTINGS_KEY] = {
+            ...currentSettings,
+            autoRotateKeys: settings.autoRotateKeys === true,
+        };
+        this._writeSecretsFile(secrets);
+        return this._getSettings(secrets);
     }
 
     /**
@@ -445,10 +502,11 @@ export function deleteSecret(directories, key) {
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {string} key Secret key
  * @param {string?} id Secret ID (optional)
+ * @param {{rotate?: boolean}} options Read options
  * @returns {string} Secret value
  */
-export function readSecret(directories, key, id = null) {
-    return new SecretManager(directories).readSecret(key, id);
+export function readSecret(directories, key, id = null, options = {}) {
+    return new SecretManager(directories).readSecret(key, id, options);
 }
 
 /**
@@ -579,7 +637,7 @@ router.post('/find', (request, response) => {
             return response.sendStatus(404);
         }
 
-        const secretValue = manager.readSecret(key, id);
+        const secretValue = manager.readSecret(key, id, { rotate: false });
         return response.send({ value: secretValue });
     } catch (error) {
         console.error('Error finding secret:', error);
@@ -641,6 +699,17 @@ router.post('/rename', (request, response) => {
     }
 });
 
-router.post('/settings', async (_request, response) => {
-    return response.send({ allowKeysExposure });
+router.post('/settings', async (request, response) => {
+    try {
+        const manager = new SecretManager(request.user.directories);
+
+        if (Object.hasOwn(request.body ?? {}, 'autoRotateKeys')) {
+            manager.setSettings({ autoRotateKeys: request.body.autoRotateKeys === true });
+        }
+
+        return response.send({ allowKeysExposure, ...manager.getSettings() });
+    } catch (error) {
+        console.error('Error reading secret settings:', error);
+        return response.sendStatus(500);
+    }
 });
