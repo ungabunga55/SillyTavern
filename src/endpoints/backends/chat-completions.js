@@ -3332,6 +3332,11 @@ router.post('/generate', async function (request, response) {
                 },
             };
 
+            if (request.body.logprobs > 0) {
+                bodyParams['top_logprobs'] = request.body.logprobs;
+                bodyParams['logprobs'] = true;
+            }
+
             if (request.body.min_p !== undefined) {
                 bodyParams['min_p'] = request.body.min_p;
             }
