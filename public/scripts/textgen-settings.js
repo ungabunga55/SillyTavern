@@ -211,6 +211,8 @@ export const textgenerationwebui_settings = {
     infermaticai_model: '',
     ollama_model: '',
     openrouter_model: 'openrouter/auto',
+    openrouter_site_url: 'https://sillytavern.app',
+    openrouter_app_name: 'SillyTavern',
     openrouter_providers: [],
     openrouter_quantizations: [],
     vllm_model: '',
@@ -310,6 +312,8 @@ export const setting_names = [
     'logit_bias',
     'custom_model',
     'bypass_status_check',
+    'openrouter_site_url',
+    'openrouter_app_name',
     'openrouter_allow_fallbacks',
     'xtc_threshold',
     'xtc_probability',
@@ -682,6 +686,8 @@ async function getStatusTextgen() {
             body: JSON.stringify({
                 api_server: endpoint,
                 api_type: textgenerationwebui_settings.type,
+                openrouter_site_url: textgenerationwebui_settings.openrouter_site_url,
+                openrouter_app_name: textgenerationwebui_settings.openrouter_app_name,
             }),
             signal: abortStatusCheck.signal,
         });
@@ -1753,6 +1759,8 @@ export function createTextGenGenerationData(settings, model, finalPrompt = null,
         params.provider = settings.openrouter_providers;
         params.quantizations = settings.openrouter_quantizations;
         params.allow_fallbacks = settings.openrouter_allow_fallbacks;
+        params.openrouter_site_url = settings.openrouter_site_url;
+        params.openrouter_app_name = settings.openrouter_app_name;
     }
 
     if (settings.type === KOBOLDCPP) {

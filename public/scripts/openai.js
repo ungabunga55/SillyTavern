@@ -485,6 +485,8 @@ export const settingsToUpdate = {
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
+    openrouter_site_url: ['#openrouter_site_url', 'openrouter_site_url', false, true],
+    openrouter_app_name: ['#openrouter_app_name', 'openrouter_app_name', false, true],
     requesty_model: ['#model_requesty_select', 'requesty_model', false, true],
     openrouter_use_fallback: ['#openrouter_use_fallback', 'openrouter_use_fallback', true, true],
     openrouter_providers: ['#openrouter_providers_chat', 'openrouter_providers', false, true],
@@ -706,6 +708,8 @@ const default_settings = {
     request_images: false,
     request_image_aspect_ratio: '',
     request_image_resolution: '',
+    openrouter_site_url: 'https://sillytavern.app',
+    openrouter_app_name: 'SillyTavern',
     seed: -1,
     n: 1,
     bind_preset_to_connection: true,
@@ -3460,6 +3464,8 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.min_p = Number(settings.min_p_openai);
         generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
         generate_data.top_a = Number(settings.top_a_openai);
+        generate_data.openrouter_site_url = settings.openrouter_site_url;
+        generate_data.openrouter_app_name = settings.openrouter_app_name;
         generate_data.use_fallback = settings.openrouter_use_fallback;
         generate_data.provider = settings.openrouter_providers;
         generate_data.quantizations = settings.openrouter_quantizations;
@@ -5371,6 +5377,12 @@ async function getStatusOpen() {
         return resultCheckStatus();
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER && oai_settings.openrouter_site_url && !isValidUrl(oai_settings.openrouter_site_url)) {
+        console.debug('Invalid OpenRouter site URL:', oai_settings.openrouter_site_url);
+        setOnlineStatus(t`Invalid OpenRouter site URL. Requests may fail.`);
+        return resultCheckStatus();
+    }
+
     let data = {
         reverse_proxy: oai_settings.reverse_proxy,
         proxy_password: oai_settings.proxy_password,
@@ -5397,6 +5409,11 @@ async function getStatusOpen() {
         $('.model_custom_select').empty();
         data.custom_url = oai_settings.custom_url;
         data.custom_include_headers = substituteParams(oai_settings.custom_include_headers);
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
+        data.openrouter_site_url = oai_settings.openrouter_site_url;
+        data.openrouter_app_name = oai_settings.openrouter_app_name;
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
@@ -8023,6 +8040,16 @@ export function initOpenAI() {
 
     $('#openrouter_middleout').on('input', function () {
         oai_settings.openrouter_middleout = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#openrouter_site_url').on('input', function () {
+        oai_settings.openrouter_site_url = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#openrouter_app_name').on('input', function () {
+        oai_settings.openrouter_app_name = String($(this).val());
         saveSettingsDebounced();
     });
 

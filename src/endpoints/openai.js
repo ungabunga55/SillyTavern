@@ -9,7 +9,7 @@ import { getConfigValue, mergeObjectWithYaml, excludeKeysByYaml, trimV1, delay }
 import { setAdditionalHeaders } from '../additional-headers.js';
 import { readSecret, SECRET_KEYS } from './secrets.js';
 import { POLLINATIONS_ENDPOINT } from '../constants.js';
-import { AIMLAPI_HEADERS, OPENROUTER_HEADERS, SILICONFLOW_ENDPOINT, ZAI_ENDPOINT } from '../constants.js';
+import { AIMLAPI_HEADERS, getOpenRouterHeaders, SILICONFLOW_ENDPOINT, ZAI_ENDPOINT } from '../constants.js';
 
 export const router = express.Router();
 
@@ -144,7 +144,7 @@ router.post('/caption-image', async (request, response) => {
 
         if (request.body.api === 'openrouter') {
             apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-            Object.assign(headers, OPENROUTER_HEADERS);
+            Object.assign(headers, getOpenRouterHeaders(request.body));
         }
 
         if (request.body.api === 'openai') {

@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import { SECRET_KEYS, readSecret } from '../endpoints/secrets.js';
-import { OPENROUTER_HEADERS } from '../constants.js';
+import { getOpenRouterHeaders } from '../constants.js';
 
 const SOURCES = {
     'togetherai': {
@@ -35,7 +35,7 @@ const SOURCES = {
         secretKey: SECRET_KEYS.OPENROUTER,
         url: 'https://openrouter.ai/api/v1',
         model: 'openai/text-embedding-3-large',
-        headers: { ...OPENROUTER_HEADERS },
+        headers: getOpenRouterHeaders(),
         processBody: () => {},
     },
     'chutes': {

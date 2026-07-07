@@ -2543,6 +2543,16 @@
                                     </select>
                                 </div>
                                 <div>
+                                    <h4 data-i18n="OpenRouter App Attribution">OpenRouter App Attribution</h4>
+                                    <label for="openrouter_site_url_textgenerationwebui" data-i18n="Site URL">Site URL</label>
+                                    <input id="openrouter_site_url_textgenerationwebui" class="text_pole" type="text" autocomplete="off" placeholder="https://sillytavern.app">
+                                    <label for="openrouter_app_name_textgenerationwebui" data-i18n="App Name">App Name</label>
+                                    <input id="openrouter_app_name_textgenerationwebui" class="text_pole" type="text" autocomplete="off" placeholder="SillyTavern">
+                                    <small data-i18n="These values are sent to OpenRouter as HTTP-Referer and X-Title headers.">
+                                        These values are sent to OpenRouter as HTTP-Referer and X-Title headers.
+                                    </small>
+                                </div>
+                                <div>
                                     <h4>
                                         <span data-i18n="Model Providers">Model Providers</span>
                                         <i id="openrouter_provider_warning_text" class="fa-solid fa-circle-exclamation displayNone" title="Deselect inapplicable provider(s) or select an applicable provider to avoid a 404 error."></i>
@@ -3293,6 +3303,16 @@
                                 <select id="model_openrouter_select">
                                     <option value="" data-i18n="-- Connect to the API --">-- Connect to the API --</option>
                                 </select>
+                            </div>
+                            <div>
+                                <h4 data-i18n="OpenRouter App Attribution">OpenRouter App Attribution</h4>
+                                <label for="openrouter_site_url" data-i18n="Site URL">Site URL</label>
+                                <input id="openrouter_site_url" class="text_pole" type="text" autocomplete="off" placeholder="https://sillytavern.app">
+                                <label for="openrouter_app_name" data-i18n="App Name">App Name</label>
+                                <input id="openrouter_app_name" class="text_pole" type="text" autocomplete="off" placeholder="SillyTavern">
+                                <small data-i18n="These values are sent to OpenRouter as HTTP-Referer and X-Title headers.">
+                                    These values are sent to OpenRouter as HTTP-Referer and X-Title headers.
+                                </small>
                             </div>
                             <label for="openrouter_use_fallback" class="checkbox_label marginTopBot5" data-i18n="[title]Allow fallback routes Description" title="Automatically chooses an alternative model if the chosen model can't serve your request.">
                                 <input id="openrouter_use_fallback" type="checkbox" />

@@ -16,7 +16,7 @@ import {
     OPENAI_REASONING_EFFORT_MAP,
     OPENAI_REASONING_EFFORT_MODELS,
     OPENAI_VERBOSITY_MODELS,
-    OPENROUTER_HEADERS,
+    getOpenRouterHeaders,
     REQUESTY_HEADERS,
     VERTEX_SAFETY,
     SILICONFLOW_ENDPOINT,
@@ -2840,7 +2840,7 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
             // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
-            headers = { ...OPENROUTER_HEADERS };
+            headers = getOpenRouterHeaders(request.body);
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
             apiUrl = API_REQUESTY;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.REQUESTY, request.body.secret_id);
@@ -3344,7 +3344,7 @@ router.post('/generate', async function (request, response) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
             // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
-            headers = { ...OPENROUTER_HEADERS };
+            headers = getOpenRouterHeaders(request.body);
             const includeReasoning = Boolean(request.body.include_reasoning);
             bodyParams = {
                 transforms: getOpenRouterTransforms(request),

@@ -44,6 +44,7 @@ import {
 import { getMessageTimeStamp, humanizedDateTime } from '../../RossAscends-mods.js';
 import { SECRET_KEYS, secret_state } from '../../secrets.js';
 import { getNovelAnlas, getNovelUnlimitedImageGeneration, loadNovelSubscriptionData } from '../../nai-settings.js';
+import { oai_settings } from '../../openai.js';
 import { getMultimodalCaption } from '../shared.js';
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../slash-commands/SlashCommand.js';
@@ -59,7 +60,6 @@ import { commonEnumProviders } from '../../slash-commands/SlashCommandCommonEnum
 import { ToolManager } from '../../tool-calling.js';
 import { macros, MacroCategory } from '../../macros/macro-system.js';
 import { t, translate } from '../../i18n.js';
-import { oai_settings } from '../../openai.js';
 import { power_user } from '/scripts/power-user.js';
 import { MacrosParser } from '/scripts/macros.js';
 import { ActionLoaderHandle, loader } from '/scripts/action-loader.js';
@@ -4791,6 +4791,8 @@ async function generateOpenRouterImage(prompt, signal) {
     const requestBody = {
         model: extension_settings.sd.model,
         prompt: prompt,
+        openrouter_site_url: oai_settings.openrouter_site_url,
+        openrouter_app_name: oai_settings.openrouter_app_name,
     };
 
     if (!hasSupportedParameterData || supportedParameters.aspect_ratio) {

@@ -367,6 +367,21 @@ export const OPENROUTER_HEADERS = {
     'X-Title': 'SillyTavern',
 };
 
+/**
+ * Gets OpenRouter attribution headers, falling back to the legacy SillyTavern values.
+ * @param {{ openrouter_site_url?: string, openrouter_app_name?: string }} [settings] OpenRouter settings
+ * @returns {{ 'HTTP-Referer': string, 'X-Title': string }} Headers for OpenRouter requests
+ */
+export function getOpenRouterHeaders(settings = {}) {
+    const siteUrl = String(settings.openrouter_site_url ?? '').replace(/[\r\n]+/g, ' ').trim() || OPENROUTER_HEADERS['HTTP-Referer'];
+    const appName = String(settings.openrouter_app_name ?? '').replace(/[\r\n]+/g, ' ').trim() || OPENROUTER_HEADERS['X-Title'];
+
+    return {
+        'HTTP-Referer': siteUrl,
+        'X-Title': appName,
+    };
+}
+
 export const REQUESTY_HEADERS = {
     'HTTP-Referer': 'https://sillytavern.app',
     'X-Title': 'SillyTavern',

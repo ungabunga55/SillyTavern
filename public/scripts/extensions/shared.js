@@ -122,6 +122,11 @@ export async function getMultimodalCaption(base64Img, prompt) {
         requestBody.custom_exclude_body = substituteParams(oai_settings.custom_exclude_body);
     }
 
+    if (extension_settings.caption.multimodal_api === 'openrouter') {
+        requestBody.openrouter_site_url = oai_settings.openrouter_site_url;
+        requestBody.openrouter_app_name = oai_settings.openrouter_app_name;
+    }
+
     if (extension_settings.caption.multimodal_api === 'zai') {
         requestBody.zai_endpoint = oai_settings.zai_endpoint || ZAI_ENDPOINT.COMMON;
     }

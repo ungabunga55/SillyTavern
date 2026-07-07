@@ -1,4 +1,4 @@
-import { TEXTGEN_TYPES, OPENROUTER_HEADERS, FEATHERLESS_HEADERS } from './constants.js';
+import { TEXTGEN_TYPES, getOpenRouterHeaders as getOpenRouterAttributionHeaders, FEATHERLESS_HEADERS } from './constants.js';
 import { SECRET_KEYS, readSecret } from './endpoints/secrets.js';
 import { getConfigValue } from './util.js';
 
@@ -63,11 +63,12 @@ function getDreamGenHeaders(directories, secretId = null) {
  * Gets the headers for the OpenRouter API.
  * @param {import('./users.js').UserDirectoryList} directories User directories
  * @param {string|null} secretId Secret ID for the request (optional, used to determine which secret to use)
+ * @param {object} requestSettings Request settings containing optional OpenRouter attribution values
  * @returns {object} Headers for the request
  */
-function getOpenRouterHeaders(directories, secretId = null) {
+function getOpenRouterHeaders(directories, secretId = null, requestSettings = {}) {
     const apiKey = readSecret(directories, SECRET_KEYS.OPENROUTER, secretId);
-    const baseHeaders = { ...OPENROUTER_HEADERS };
+    const baseHeaders = getOpenRouterAttributionHeaders(requestSettings);
 
     return apiKey ? Object.assign(baseHeaders, { 'Authorization': `Bearer ${apiKey}` }) : baseHeaders;
 }
@@ -216,7 +217,7 @@ export function getOverrideHeaders(urlHost) {
  * @param {string|null} server API server for new request
  */
 export function setAdditionalHeaders(request, args, server) {
-    setAdditionalHeadersByType(args.headers, request.body.api_type, server, request.user.directories, request.body.secret_id);
+    setAdditionalHeadersByType(args.headers, request.body.api_type, server, request.user.directories, request.body.secret_id, request.body);
 }
 
 /**
@@ -226,8 +227,9 @@ export function setAdditionalHeaders(request, args, server) {
  * @param {string|null} server API server for new request
  * @param {import('./users.js').UserDirectoryList} directories User directories
  * @param {string|null} secretId Secret ID for the request (optional, used for some API types to determine which secret to use)
+ * @param {object} requestSettings Request settings
  */
-export function setAdditionalHeadersByType(requestHeaders, type, server, directories, secretId = null) {
+export function setAdditionalHeadersByType(requestHeaders, type, server, directories, secretId = null, requestSettings = {}) {
     const headerGetters = {
         [TEXTGEN_TYPES.MANCER]: getMancerHeaders,
         [TEXTGEN_TYPES.VLLM]: getVllmHeaders,
@@ -246,7 +248,7 @@ export function setAdditionalHeadersByType(requestHeaders, type, server, directo
     };
 
     const getHeaders = headerGetters[type];
-    const headers = getHeaders ? getHeaders(directories, secretId) : {};
+    const headers = getHeaders ? getHeaders(directories, secretId, requestSettings) : {};
 
     if (typeof server === 'string' && server.length > 0) {
         try {
