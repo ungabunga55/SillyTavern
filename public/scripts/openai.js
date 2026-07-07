@@ -246,6 +246,8 @@ const openrouter_middleout_types = {
     OFF: 'off',
 };
 
+const nanogpt_sort_models = new Set(['favorites', 'mostused']);
+
 export const reasoning_effort_types = {
     auto: 'auto',
     low: 'low',
@@ -7156,8 +7158,22 @@ function toggleChatCompletionForms() {
         $(this).toggle(mode !== 'except' ? matchesSource : !matchesSource);
     });
 
+    updateModelSortingControls();
+
     setToolReasoningControls();
     updateOpenRouterSamplerSupportIndicators();
+}
+
+function updateModelSortingControls() {
+    const isNanoGpt = oai_settings.chat_completion_source === chat_completion_sources.NANOGPT;
+    const $sortModels = $('#cc_sort_models');
+
+    $sortModels.find('option[data-source="nanogpt"]').prop('hidden', !isNanoGpt).toggle(isNanoGpt);
+
+    if (!isNanoGpt && nanogpt_sort_models.has(String($sortModels.val()))) {
+        oai_settings.sort_models = default_settings.sort_models;
+        $sortModels.val(oai_settings.sort_models);
+    }
 }
 
 async function testApiConnection() {
