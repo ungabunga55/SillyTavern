@@ -31,6 +31,7 @@ import {
     substituteParamsExtended,
     system_message_types,
     this_chid,
+    getCurrentChatId,
 } from '../script.js';
 import { getGroupNames, selected_group } from './group-chats.js';
 
@@ -520,6 +521,7 @@ export const settingsToUpdate = {
     pollinations_endpoint: ['#pollinations_endpoint', 'pollinations_endpoint', false, true],
     moonshot_model: ['#model_moonshot_select', 'moonshot_model', false, true],
     fireworks_model: ['#model_fireworks_select', 'fireworks_model', false, true],
+    fireworks_prompt_caching: ['#fireworks_prompt_caching', 'fireworks_prompt_caching', true, true],
     cometapi_model: ['#model_cometapi_select', 'cometapi_model', false, true],
     custom_model: ['#custom_model_id', 'custom_model', false, true],
     custom_url: ['#custom_api_url_text', 'custom_url', false, true],
@@ -661,6 +663,7 @@ const default_settings = {
     cometapi_model: 'gpt-4o',
     moonshot_model: 'kimi-latest',
     fireworks_model: 'accounts/fireworks/models/glm-5p2',
+    fireworks_prompt_caching: false,
     zai_model: 'glm-4.6',
     zai_endpoint: ZAI_ENDPOINT.COMMON,
     workers_ai_model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
@@ -3644,6 +3647,11 @@ export async function createGenerationParameters(settings, model, type, messages
             if (Number.isFinite(generate_data.temperature)) {
                 generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
             }
+        }
+
+        if (settings.fireworks_prompt_caching && type !== 'quiet') {
+            generate_data.fireworks_prompt_caching = true;
+            generate_data.chat_id = getCurrentChatId();
         }
     }
 
@@ -8352,6 +8360,11 @@ export function initOpenAI() {
 
     $('#nanogpt_service_tier').on('change', function () {
         oai_settings.nanogpt_service_tier = String($(this).val() || '');
+        saveSettingsDebounced();
+    });
+
+    $('#fireworks_prompt_caching').on('input', function () {
+        oai_settings.fireworks_prompt_caching = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

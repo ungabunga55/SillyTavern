@@ -1,6 +1,7 @@
 /* eslint-disable dot-notation */
 import process from 'node:process';
 import util from 'node:util';
+import { createHmac } from 'node:crypto';
 import express from 'express';
 import fetch from 'node-fetch';
 import urlJoin from 'url-join';
@@ -68,6 +69,7 @@ import {
     getWebTokenizer,
 } from '../tokenizers.js';
 import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
+import { getCookieSecret } from '../../users.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
 const API_CLAUDE = 'https://api.anthropic.com/v1';
@@ -93,6 +95,7 @@ const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
 const API_FIREWORKS_MODELS = 'https://api.fireworks.ai/v1';
 const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/glm-5p2';
 const FIREWORKS_LEGACY_DEFAULT_MODEL = 'accounts/fireworks/models/kimi-k2-instruct';
+const FIREWORKS_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern Fireworks prompt cache affinity v1';
 const FIREWORKS_SERVERLESS_MODELS = [
     { id: 'accounts/fireworks/models/glm-5p2', display_name: 'GLM 5.2', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/models/deepseek-v4-pro', display_name: 'DeepSeek-V4-Pro', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
@@ -126,6 +129,7 @@ const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+let fireworksPromptCacheHmacKey;
 const CLAUDE_LEGACY_SAMPLING_MODEL_REGEXES = [
     /^claude-2(?:$|[-.])/,
     /^claude-instant(?:$|-)/,
@@ -735,6 +739,44 @@ function sanitizeFireworksRequestBody(requestBody, request) {
             requestBody.temperature = Math.min(Math.max(Number(requestBody.temperature), Number.EPSILON), 1.0);
         }
     }
+}
+
+/**
+ * Gets a purpose-specific HMAC key for Fireworks prompt-cache affinity.
+ * @returns {Buffer} Derived HMAC key
+ */
+function getFireworksPromptCacheHmacKey() {
+    if (!fireworksPromptCacheHmacKey) {
+        fireworksPromptCacheHmacKey = createHmac('sha256', getCookieSecret(globalThis.DATA_ROOT))
+            .update(FIREWORKS_PROMPT_CACHE_HMAC_CONTEXT)
+            .digest();
+    }
+
+    return fireworksPromptCacheHmacKey;
+}
+
+/**
+ * Builds an opaque Fireworks session-affinity value from the current local chat.
+ * @param {express.Request} request Express request
+ * @returns {string|undefined} Session affinity value
+ */
+function getFireworksSessionAffinity(request) {
+    if (!request.body.fireworks_prompt_caching || typeof request.body.chat_id !== 'string') {
+        return undefined;
+    }
+
+    const chatId = request.body.chat_id.slice(0, 512);
+    if (!chatId) {
+        return undefined;
+    }
+
+    const userHandle = typeof request.user?.profile?.handle === 'string' ? request.user.profile.handle : '';
+    return createHmac('sha256', getFireworksPromptCacheHmacKey())
+        .update(userHandle)
+        .update('\0')
+        .update(chatId)
+        .digest('hex')
+        .slice(0, 32);
 }
 
 /**
@@ -3791,6 +3833,10 @@ router.post('/generate', async function (request, response) {
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
+            const sessionAffinity = getFireworksSessionAffinity(request);
+            if (sessionAffinity) {
+                headers['x-session-affinity'] = sessionAffinity;
+            }
             sanitizeFireworksRequestBody(requestBody, request);
         }
 
