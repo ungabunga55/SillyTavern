@@ -6,6 +6,7 @@ import { OPENROUTER_HEADERS } from '../constants.js';
 
 export const router = express.Router();
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
+const SUPPORTED_OPENROUTER_IMAGE_FORMATS = new Set(['png', 'jpg', 'jpeg', 'webp']);
 
 router.post('/models/providers', async (req, res) => {
     try {
@@ -90,9 +91,46 @@ router.post('/models/embedding', async (_req, res) => {
     }
 });
 
-router.post('/models/image', async (_req, res) => {
+router.post('/models/image', async (req, res) => {
     try {
-        const models = await fetchModelsByModality('/models', 'text', 'image', m => ({ value: m.id, text: m.name || m.id }));
+        const key = readSecret(req.user.directories, SECRET_KEYS.OPENROUTER);
+        const headers = { 'Accept': 'application/json' };
+
+        if (key) {
+            headers['Authorization'] = `Bearer ${key}`;
+        }
+
+        const response = await fetch(`${API_OPENROUTER}/images/models`, {
+            method: 'GET',
+            headers,
+        });
+
+        if (!response.ok) {
+            console.warn('OpenRouter image models request failed', response.statusText);
+            return res.json([]);
+        }
+
+        /** @type {any} */
+        const data = await response.json();
+
+        if (!Array.isArray(data?.data)) {
+            console.warn('OpenRouter image models response was not an array');
+            return res.json([]);
+        }
+
+        const models = data.data
+            .filter(m => Array.isArray(m?.architecture?.input_modalities))
+            .filter(m => m.architecture.input_modalities.includes('text'))
+            .filter(m => Array.isArray(m?.architecture?.output_modalities))
+            .filter(m => m.architecture.output_modalities.includes('image'))
+            .sort((a, b) => a?.id && b?.id ? a.id.localeCompare(b.id) : 0)
+            .map(m => ({
+                value: m.id,
+                text: m.name || m.id,
+                supported_parameters: m.supported_parameters || {},
+                supports_streaming: !!m.supports_streaming,
+            }));
+
         return res.json(models);
     } catch (error) {
         console.error(error);
@@ -152,26 +190,28 @@ router.post('/image/generate', async (req, res) => {
             return res.status(400).json({ error: 'Model and prompt are required' });
         }
 
-        const response = await fetch(`${API_OPENROUTER}/chat/completions`, {
+        const requestBody = {
+            model: model,
+            prompt: prompt,
+            n: 1,
+        };
+
+        if (req.body.aspect_ratio) {
+            requestBody.aspect_ratio = req.body.aspect_ratio;
+        }
+
+        if (req.body.seed !== undefined) {
+            requestBody.seed = req.body.seed;
+        }
+
+        const response = await fetch(`${API_OPENROUTER}/images`, {
             method: 'POST',
             headers: {
                 ...OPENROUTER_HEADERS,
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${key}`,
             },
-            body: JSON.stringify({
-                model: model,
-                messages: [
-                    {
-                        role: 'user',
-                        content: prompt,
-                    },
-                ],
-                modalities: ['image'],
-                image_config: {
-                    aspect_ratio: req.body.aspect_ratio || '1:1',
-                },
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -182,22 +222,31 @@ router.post('/image/generate', async (req, res) => {
         /** @type {any} */
         const data = await response.json();
 
-        const imageUrl = data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        const encodedImage = String(data?.data?.[0]?.b64_json || '');
 
-        if (!imageUrl) {
-            console.warn('No image URL found in OpenRouter response', data);
+        if (!encodedImage) {
+            console.warn('No image data found in OpenRouter response', data);
             return res.sendStatus(500);
         }
 
-        const [mimeType, base64Data] = /^data:(.*);base64,(.*)$/.exec(imageUrl)?.slice(1) || [];
+        const dataUrlMatch = /^data:(.*);base64,(.*)$/.exec(encodedImage);
+        const mediaType = data?.data?.[0]?.media_type;
+        const mimeType = dataUrlMatch?.[1] || mediaType || 'image/png';
+        const base64Data = dataUrlMatch?.[2] || encodedImage;
+        const format = mime.extension(mimeType) || 'png';
 
-        if (!mimeType || !base64Data) {
-            console.warn('Invalid image data format', imageUrl);
+        if (!base64Data) {
+            console.warn('Invalid image data format', data);
             return res.sendStatus(500);
+        }
+
+        if (!SUPPORTED_OPENROUTER_IMAGE_FORMATS.has(format)) {
+            console.warn('Unsupported OpenRouter image format', mimeType);
+            return res.status(500).json({ error: `Unsupported image format: ${format}` });
         }
 
         const result = {
-            format: mime.extension(mimeType) || 'png',
+            format: format,
             image: base64Data,
         };
 

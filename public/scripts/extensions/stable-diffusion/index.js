@@ -3562,7 +3562,7 @@ async function generateExtrasImage(prompt, negativePrompt, signal) {
  * Gets an aspect ratio for Stability that is the closest to the given width and height.
  * @param {number} width Target width
  * @param {number} height Target height
- * @param {'google'|'stability'|'zai'|'xai'} source Source of the request, used to determine aspect ratio
+ * @param {'google'|'openrouter'|'stability'|'zai'|'xai'} source Source of the request, used to determine aspect ratio
  * @returns {string} Closest aspect ratio as a string
  */
 function getClosestAspectRatio(width, height, source) {
@@ -3609,6 +3609,30 @@ function getClosestAspectRatio(width, height, source) {
                     '20:9': 20 / 9,
                     '1:2': 1 / 2,
                     '2:1': 2 / 1,
+                };
+            case 'openrouter':
+                return {
+                    '1:1': 1,
+                    '1:2': 1 / 2,
+                    '1:4': 1 / 4,
+                    '1:8': 1 / 8,
+                    '2:1': 2 / 1,
+                    '2:3': 2 / 3,
+                    '3:2': 3 / 2,
+                    '3:4': 3 / 4,
+                    '4:1': 4 / 1,
+                    '4:3': 4 / 3,
+                    '4:5': 4 / 5,
+                    '5:4': 5 / 4,
+                    '8:1': 8 / 1,
+                    '9:16': 9 / 16,
+                    '16:9': 16 / 9,
+                    '9:19.5': 9 / 19.5,
+                    '19.5:9': 19.5 / 9,
+                    '9:20': 9 / 20,
+                    '20:9': 20 / 9,
+                    '9:21': 9 / 21,
+                    '21:9': 21 / 9,
                 };
             default:
                 console.warn(`Unknown source "${source}" for aspect ratio calculation.`);
@@ -4708,26 +4732,86 @@ async function generateZaiImage(prompt, signal) {
 }
 
 /**
+ * Gets the selected OpenRouter image model metadata.
+ * @returns {any}
+ */
+function getSelectedOpenRouterImageModel() {
+    return $('#sd_model').find(':selected').data('model') || {};
+}
+
+/**
+ * Gets the closest supported OpenRouter aspect ratio for the requested dimensions.
+ * @param {number} width Target width
+ * @param {number} height Target height
+ * @param {string[]} values Supported aspect ratio values
+ * @returns {string}
+ */
+function getClosestOpenRouterAspectRatio(width, height, values) {
+    const supportedValues = Array.isArray(values) ? values.filter(value => value !== 'auto') : [];
+
+    if (Array.isArray(values) && values.length > 0 && supportedValues.length === 0 && values.includes('auto')) {
+        return 'auto';
+    }
+
+    if (supportedValues.length === 0) {
+        return getClosestAspectRatio(width, height, 'openrouter');
+    }
+
+    const targetRatio = width / height;
+    let closestValue = supportedValues[0];
+    let minDiff = Number.POSITIVE_INFINITY;
+
+    for (const value of supportedValues) {
+        const [ratioWidth, ratioHeight] = String(value).split(':').map(Number);
+
+        if (!ratioWidth || !ratioHeight) {
+            continue;
+        }
+
+        const diff = Math.abs(targetRatio - (ratioWidth / ratioHeight));
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestValue = value;
+        }
+    }
+
+    return closestValue;
+}
+
+/**
  * Generates an image using the OpenRouter API.
  * @param {string} prompt The main instruction used to guide the image generation.
  * @param {AbortSignal} signal An AbortSignal object that can be used to cancel the request.
  * @returns {Promise<{format: string, data: string}>}
  */
 async function generateOpenRouterImage(prompt, signal) {
+    const selectedModel = getSelectedOpenRouterImageModel();
+    const supportedParameters = selectedModel?.supported_parameters || {};
+    const hasSupportedParameterData = Object.keys(supportedParameters).length > 0;
+    const requestBody = {
+        model: extension_settings.sd.model,
+        prompt: prompt,
+    };
+
+    if (!hasSupportedParameterData || supportedParameters.aspect_ratio) {
+        const aspectRatioValues = supportedParameters.aspect_ratio?.values;
+        requestBody.aspect_ratio = getClosestOpenRouterAspectRatio(extension_settings.sd.width, extension_settings.sd.height, aspectRatioValues);
+    }
+
+    if (supportedParameters.seed && extension_settings.sd.seed >= 0) {
+        requestBody.seed = extension_settings.sd.seed;
+    }
+
     const result = await fetch('/api/openrouter/image/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
         signal: signal,
-        body: JSON.stringify({
-            model: extension_settings.sd.model,
-            prompt: prompt,
-            aspect_ratio: getClosestAspectRatio(extension_settings.sd.width, extension_settings.sd.height, 'stability'),
-        }),
+        body: JSON.stringify(requestBody),
     });
 
     if (result.ok) {
         const data = await result.json();
-        return { format: 'jpg', data: data.image };
+        return { format: data.format || 'png', data: data.image };
     }
 
     const text = await result.text();
