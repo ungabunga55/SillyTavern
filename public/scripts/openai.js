@@ -194,6 +194,7 @@ export const chat_completion_sources = {
     COHERE: 'cohere',
     PERPLEXITY: 'perplexity',
     GROQ: 'groq',
+    NVIDIA: 'nvidia',
     ELECTRONHUB: 'electronhub',
     CHUTES: 'chutes',
     NANOGPT: 'nanogpt',
@@ -503,6 +504,7 @@ export const settingsToUpdate = {
     cohere_model: ['#model_cohere_select', 'cohere_model', false, true],
     perplexity_model: ['#model_perplexity_select', 'perplexity_model', false, true],
     groq_model: ['#model_groq_select', 'groq_model', false, true],
+    nvidia_model: ['#model_nvidia_select', 'nvidia_model', false, true],
     chutes_model: ['#model_chutes_select', 'chutes_model', false, true],
     siliconflow_model: ['#model_siliconflow_select', 'siliconflow_model', false, true],
     siliconflow_endpoint: ['#siliconflow_endpoint', 'siliconflow_endpoint', false, true],
@@ -604,6 +606,20 @@ const openRouterSamplerParameterControls = [
     { parameter: 'seed', selector: '#seed_openai' },
 ];
 
+const nvidiaDefaultEnabledParameters = [
+    'temperature',
+    'top_p',
+    'frequency_penalty',
+    'presence_penalty',
+    'top_k',
+    'repetition_penalty',
+    'min_p',
+    'top_a',
+    'seed',
+    'thinking',
+    'reasoning_effort',
+];
+
 const default_settings = {
     preset_settings_openai: 'Default',
     temp_openai: 1.0,
@@ -644,6 +660,8 @@ const default_settings = {
     cohere_model: 'command-r-plus',
     perplexity_model: 'sonar-pro',
     groq_model: 'llama-3.3-70b-versatile',
+    nvidia_model: 'z-ai/glm-5.2',
+    nvidia_enabled_parameters: nvidiaDefaultEnabledParameters,
     chutes_model: 'deepseek-ai/DeepSeek-V3-0324',
     siliconflow_model: 'deepseek-ai/DeepSeek-V3',
     siliconflow_endpoint: SILICONFLOW_ENDPOINT.GLOBAL,
@@ -1944,6 +1962,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.perplexity_model;
         case chat_completion_sources.GROQ:
             return settings.groq_model;
+        case chat_completion_sources.NVIDIA:
+            return settings.nvidia_model;
         case chat_completion_sources.SILICONFLOW:
             return settings.siliconflow_model;
         case chat_completion_sources.ATLASCLOUD:
@@ -2569,6 +2589,32 @@ function saveModelList(data) {
         $('#model_groq_select').val(oai_settings.groq_model).trigger('change');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.NVIDIA) {
+        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.NVIDIA);
+        $('#model_nvidia_select').empty();
+
+        if (oai_settings.group_models) {
+            groupModelsByVendor(model_list, chat_completion_sources.NVIDIA).forEach((models, vendor) => {
+                const optgroup = $('<optgroup>').attr('label', vendor);
+                models.forEach((model) => {
+                    optgroup.append($('<option>', { value: model.id, text: model.id }));
+                });
+                $('#model_nvidia_select').append(optgroup);
+            });
+        } else {
+            model_list.forEach((model) => {
+                $('#model_nvidia_select').append($('<option>', { value: model.id, text: model.id }));
+            });
+        }
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.nvidia_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.nvidia_model)) {
+            oai_settings.nvidia_model = model_list[0].id;
+        }
+
+        $('#model_nvidia_select').val(oai_settings.nvidia_model).trigger('change');
+    }
+
     if (oai_settings.chat_completion_source === chat_completion_sources.SILICONFLOW) {
         $('#model_siliconflow_select').empty();
         model_list.forEach((model) => {
@@ -3008,6 +3054,14 @@ function sortModelsBy(data, property, source) {
                     return a?.info?.name && b?.info?.name ? a.info.name.localeCompare(b.info.name) : 0;
                 }
             });
+        case chat_completion_sources.NVIDIA:
+            return data.sort((a, b) => {
+                if (property === 'context_length') {
+                    return (b.context_length || b.context_window || 0) - (a.context_length || a.context_window || 0);
+                } else {
+                    return (a?.id || '').localeCompare(b?.id || '');
+                }
+            });
         default:
             return data;
     }
@@ -3023,6 +3077,7 @@ function groupModelsByVendor(array, source) {
     switch (source) {
         case chat_completion_sources.OPENROUTER:
         case chat_completion_sources.REQUESTY:
+        case chat_completion_sources.NVIDIA:
             return array.reduce((acc, curr) => {
                 const vendor = curr.id.split('/')[0];
                 if (!acc.has(vendor)) {
@@ -3100,6 +3155,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.CHUTES,
         chat_completion_sources.DEEPSEEK,
         chat_completion_sources.ZAI,
+        chat_completion_sources.NVIDIA,
     ];
 
     if (!reasoningEffortSources.includes(settings.chat_completion_source)) {
@@ -3142,6 +3198,20 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.auto:
                     return undefined;
                 case reasoning_effort_types.max:
+                    return reasoning_effort_types.max;
+                default:
+                    return reasoning_effort_types.high;
+            }
+        }
+
+        if (settings.chat_completion_source === chat_completion_sources.NVIDIA) {
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.min:
+                    return 'none';
+                case reasoning_effort_types.max:
+                case reasoning_effort_types.xhigh:
                     return reasoning_effort_types.max;
                 default:
                     return reasoning_effort_types.high;
@@ -3300,6 +3370,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.CUSTOM,
         chat_completion_sources.COHERE,
         chat_completion_sources.GROQ,
+        chat_completion_sources.NVIDIA,
         chat_completion_sources.ELECTRONHUB,
         chat_completion_sources.NANOGPT,
         chat_completion_sources.XAI,
@@ -3533,6 +3604,16 @@ export async function createGenerationParameters(settings, model, type, messages
         delete generate_data.logit_bias;
         delete generate_data.top_logprobs;
         delete generate_data.n;
+    }
+
+    if (settings.chat_completion_source === chat_completion_sources.NVIDIA) {
+        generate_data.top_k = Number(settings.top_k_openai);
+        generate_data.min_p = Number(settings.min_p_openai);
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
+        generate_data.top_a = Number(settings.top_a_openai);
+        generate_data.nvidia_enabled_parameters = Array.isArray(settings.nvidia_enabled_parameters)
+            ? settings.nvidia_enabled_parameters
+            : nvidiaDefaultEnabledParameters;
     }
 
     // https://api-docs.deepseek.com/api/create-chat-completion
@@ -4174,7 +4255,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -5302,6 +5383,7 @@ function loadOpenAISettings(data, settings) {
         $('#openai_logit_bias_preset').append(option);
     }
     $('#openai_logit_bias_preset').trigger('change');
+    setNvidiaParameterControls();
 
     setNamesBehaviorControls();
     setContinuePostfixControls();
@@ -5312,6 +5394,15 @@ function loadOpenAISettings(data, settings) {
     $('#openrouter_quantizations_chat').trigger('change');
     $('#nanogpt_provider').trigger('change');
     $('#chat_completion_source').trigger('change');
+}
+
+function setNvidiaParameterControls() {
+    const enabledParameters = new Set(Array.isArray(oai_settings.nvidia_enabled_parameters)
+        ? oai_settings.nvidia_enabled_parameters
+        : nvidiaDefaultEnabledParameters);
+    $('.nvidia_parameter_toggle').each(function () {
+        $(this).prop('checked', enabledParameters.has(String($(this).val())));
+    });
 }
 
 function setNamesBehaviorControls() {
@@ -5510,6 +5601,9 @@ export function getChatCompletionPreset(settings = oai_settings) {
     for (const [presetKey, [, settingsKey]] of Object.entries(settingsToUpdate)) {
         presetBody[presetKey] = settings[settingsKey];
     }
+    presetBody.nvidia_enabled_parameters = Array.isArray(settings.nvidia_enabled_parameters)
+        ? settings.nvidia_enabled_parameters
+        : nvidiaDefaultEnabledParameters;
     return structuredClone(presetBody);
 }
 
@@ -5972,6 +6066,11 @@ function onSettingsPresetChange() {
                 oai_settings[setting] = preset[key];
             }
         }
+
+        oai_settings.nvidia_enabled_parameters = Array.isArray(preset.nvidia_enabled_parameters)
+            ? preset.nvidia_enabled_parameters
+            : nvidiaDefaultEnabledParameters;
+        setNvidiaParameterControls();
 
         // These cannot be changed via preset if unbound to connection
         if (oai_settings.bind_preset_to_connection) {
@@ -6518,6 +6617,15 @@ async function onModelChange() {
         oai_settings.groq_model = value;
     }
 
+    if ($(this).is('#model_nvidia_select')) {
+        if (!value || !hasModelsLoaded) {
+            console.debug('Null NVIDIA model selected. Ignoring.');
+            return;
+        }
+        console.log('NVIDIA model changed to', value);
+        oai_settings.nvidia_model = value;
+    }
+
     if ($(this).is('#model_siliconflow_select')) {
         if (!value) {
             console.debug('Null SiliconFlow model selected. Ignoring.');
@@ -6805,6 +6913,15 @@ async function onModelChange() {
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.NVIDIA) {
+        const maxContext = oai_settings.max_context_unlocked ? unlocked_max : max_128k;
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(1, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', 1).val(oai_settings.temp_openai).trigger('input');
+    }
+
     if (oai_settings.chat_completion_source == chat_completion_sources.AI21) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
@@ -7047,6 +7164,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.COHERE]: { key: SECRET_KEYS.COHERE, selector: '#api_key_cohere', proxy: false },
         [chat_completion_sources.PERPLEXITY]: { key: SECRET_KEYS.PERPLEXITY, selector: '#api_key_perplexity', proxy: false },
         [chat_completion_sources.GROQ]: { key: SECRET_KEYS.GROQ, selector: '#api_key_groq', proxy: false },
+        [chat_completion_sources.NVIDIA]: { key: SECRET_KEYS.NVIDIA, selector: '#api_key_nvidia', proxy: false, keyless: true },
         [chat_completion_sources.SILICONFLOW]: { key: SECRET_KEYS.SILICONFLOW, selector: '#api_key_siliconflow', proxy: false },
         [chat_completion_sources.ATLASCLOUD]: { key: SECRET_KEYS.ATLASCLOUD, selector: '#api_key_atlascloud', proxy: false },
         [chat_completion_sources.ELECTRONHUB]: { key: SECRET_KEYS.ELECTRONHUB, selector: '#api_key_electronhub', proxy: false },
@@ -7127,6 +7245,8 @@ function toggleChatCompletionForms() {
         $('#model_perplexity_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.GROQ) {
         $('#model_groq_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.NVIDIA) {
+        $('#model_nvidia_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.CHUTES) {
         $('#model_chutes_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.SILICONFLOW) {
@@ -7874,6 +7994,13 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
+    $('.nvidia_parameter_toggle').on('change', function () {
+        oai_settings.nvidia_enabled_parameters = $('.nvidia_parameter_toggle:checked').map(function () {
+            return String($(this).val());
+        }).get();
+        saveSettingsDebounced();
+    });
+
     $('#openai_max_context').on('input', function () {
         oai_settings.openai_max_context = Number($(this).val());
         $('#openai_max_context_counter').val(`${$(this).val()}`);
@@ -8444,6 +8571,7 @@ export function initOpenAI() {
     $('#model_cohere_select').on('change', onModelChange);
     $('#model_perplexity_select').on('change', onModelChange);
     $('#model_groq_select').on('change', onModelChange);
+    $('#model_nvidia_select').on('change', onModelChange);
     $('#model_chutes_select').on('change', onModelChange);
     $('#model_siliconflow_select').on('change', onModelChange);
     $('#model_atlascloud_select').on('change', onModelChange);

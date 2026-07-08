@@ -78,6 +78,7 @@ const API_COHERE_V1 = 'https://api.cohere.ai/v1';
 const API_COHERE_V2 = 'https://api.cohere.ai/v2';
 const API_PERPLEXITY = 'https://api.perplexity.ai';
 const API_GROQ = 'https://api.groq.com/openai/v1';
+const API_NVIDIA = 'https://integrate.api.nvidia.com/v1';
 const API_MAKERSUITE = 'https://generativelanguage.googleapis.com';
 const API_VERTEX_AI = 'https://us-central1-aiplatform.googleapis.com';
 const API_AI21 = 'https://api.ai21.com/studio/v1';
@@ -127,6 +128,20 @@ const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
 const API_REQUESTY = 'https://router.requesty.ai/v1';
 const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
+
+const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
+    'temperature',
+    'top_p',
+    'frequency_penalty',
+    'presence_penalty',
+    'top_k',
+    'repetition_penalty',
+    'min_p',
+    'top_a',
+    'seed',
+    'thinking',
+    'reasoning_effort',
+];
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
@@ -2987,6 +3002,10 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = API_GROQ;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.GROQ, request.body.secret_id);
             headers = {};
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NVIDIA) {
+            apiUrl = API_NVIDIA;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.NVIDIA, request.body.secret_id);
+            headers = { 'Accept': 'application/json' };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.COMETAPI) {
             apiUrl = API_COMETAPI;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.COMETAPI, request.body.secret_id);
@@ -3197,7 +3216,7 @@ router.post('/status', async function (request, statusResponse) {
             return statusResponse.status(400).send({ error: true });
         }
 
-        if (!apiKey && !request.body.reverse_proxy && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.CUSTOM) {
+        if (!apiKey && !request.body.reverse_proxy && ![CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.NVIDIA].includes(request.body.chat_completion_source)) {
             console.warn('Chat Completion API key is missing.');
             return statusResponse.status(400).send({ error: true });
         }
@@ -3209,7 +3228,7 @@ router.post('/status', async function (request, statusResponse) {
         const response = await fetch(modelsUrl, {
             method: 'GET',
             headers: {
-                'Authorization': 'Bearer ' + apiKey,
+                ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
                 ...headers,
             },
         });
@@ -3590,6 +3609,31 @@ router.post('/generate', async function (request, response) {
                     },
                 };
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NVIDIA) {
+            apiUrl = API_NVIDIA;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.NVIDIA, request.body.secret_id);
+            headers = { 'Accept': 'application/json' };
+            const enabledParameters = new Set(Array.isArray(request.body.nvidia_enabled_parameters)
+                ? request.body.nvidia_enabled_parameters
+                : NVIDIA_DEFAULT_ENABLED_PARAMETERS);
+            bodyParams = {};
+            if (enabledParameters.has('thinking')) {
+                bodyParams['thinking'] = {
+                    type: request.body.include_reasoning ? 'enabled' : 'disabled',
+                };
+            }
+            if (enabledParameters.has('reasoning_effort') && request.body.reasoning_effort) {
+                bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+            }
+            if (enabledParameters.has('min_p') && request.body.min_p !== undefined) {
+                bodyParams['min_p'] = request.body.min_p;
+            }
+            if (enabledParameters.has('top_a') && request.body.top_a !== undefined) {
+                bodyParams['top_a'] = request.body.top_a;
+            }
+            if (enabledParameters.has('repetition_penalty') && request.body.repetition_penalty !== undefined) {
+                bodyParams['repetition_penalty'] = request.body.repetition_penalty;
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
             apiUrl = API_FIREWORKS;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS, request.body.secret_id);
@@ -3888,6 +3932,17 @@ router.post('/generate', async function (request, response) {
                 headers['x-session-affinity'] = sessionAffinity;
             }
             sanitizeFireworksRequestBody(requestBody, request);
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NVIDIA) {
+            const enabledParameters = new Set(Array.isArray(request.body.nvidia_enabled_parameters)
+                ? request.body.nvidia_enabled_parameters
+                : NVIDIA_DEFAULT_ENABLED_PARAMETERS);
+            for (const parameter of ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'top_k', 'seed']) {
+                if (!enabledParameters.has(parameter)) {
+                    delete requestBody[parameter];
+                }
+            }
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {

@@ -39,6 +39,7 @@ export const SECRET_KEYS = {
     COHERE: 'api_key_cohere',
     PERPLEXITY: 'api_key_perplexity',
     GROQ: 'api_key_groq',
+    NVIDIA: 'api_key_nvidia',
     AZURE_TTS: 'api_key_azure_tts',
     FEATHERLESS: 'api_key_featherless',
     HUGGINGFACE: 'api_key_huggingface',
