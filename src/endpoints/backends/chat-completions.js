@@ -96,6 +96,7 @@ const API_FIREWORKS_MODELS = 'https://api.fireworks.ai/v1';
 const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/glm-5p2';
 const FIREWORKS_LEGACY_DEFAULT_MODEL = 'accounts/fireworks/models/kimi-k2-instruct';
 const FIREWORKS_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern Fireworks prompt cache affinity v1';
+const XAI_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern xAI prompt cache key v1';
 const FIREWORKS_SERVERLESS_MODELS = [
     { id: 'accounts/fireworks/models/glm-5p2', display_name: 'GLM 5.2', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/models/deepseek-v4-pro', display_name: 'DeepSeek-V4-Pro', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
@@ -130,6 +131,7 @@ const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
 let fireworksPromptCacheHmacKey;
+let xaiPromptCacheHmacKey;
 const CLAUDE_LEGACY_SAMPLING_MODEL_REGEXES = [
     /^claude-2(?:$|[-.])/,
     /^claude-instant(?:$|-)/,
@@ -780,6 +782,44 @@ function getFireworksSessionAffinity(request) {
 }
 
 /**
+ * Gets a purpose-specific HMAC key for xAI prompt caching.
+ * @returns {Buffer} Derived HMAC key
+ */
+function getXaiPromptCacheHmacKey() {
+    if (!xaiPromptCacheHmacKey) {
+        xaiPromptCacheHmacKey = createHmac('sha256', getCookieSecret(globalThis.DATA_ROOT))
+            .update(XAI_PROMPT_CACHE_HMAC_CONTEXT)
+            .digest();
+    }
+
+    return xaiPromptCacheHmacKey;
+}
+
+/**
+ * Builds an opaque xAI prompt-cache key from the current local chat.
+ * @param {express.Request} request Express request
+ * @returns {string|undefined} Prompt cache key
+ */
+function getXaiPromptCacheKey(request) {
+    if (!request.body.xai_prompt_caching || typeof request.body.chat_id !== 'string') {
+        return undefined;
+    }
+
+    const chatId = request.body.chat_id.slice(0, 512);
+    if (!chatId) {
+        return undefined;
+    }
+
+    const userHandle = typeof request.user?.profile?.handle === 'string' ? request.user.profile.handle : '';
+    return createHmac('sha256', getXaiPromptCacheHmacKey())
+        .update(userHandle)
+        .update('\0')
+        .update(chatId)
+        .digest('hex')
+        .slice(0, 32);
+}
+
+/**
  * Gets the closest direct provider family for a Fireworks model id.
  * @param {string} modelId Lower-cased Fireworks model id
  * @returns {string} Provider family name
@@ -1159,6 +1199,7 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
         text: Object.keys(text).length ? text : undefined,
         reasoning: Object.keys(reasoning).length ? reasoning : undefined,
         search_parameters: bodyParams.search_parameters,
+        prompt_cache_key: bodyParams.prompt_cache_key,
         logprobs: bodyParams.logprobs,
         top_logprobs: bodyParams.top_logprobs,
     });
@@ -2315,6 +2356,11 @@ async function sendXaiRequest(request, response) {
             };
         }
 
+        const promptCacheKey = getXaiPromptCacheKey(request);
+        if (promptCacheKey && useXAIResponsesApi) {
+            bodyParams['prompt_cache_key'] = promptCacheKey;
+        }
+
         const processedMessages = request.body.messages = convertXAIMessages(request.body.messages, getPromptNames(request));
         const requestBody = useXAIResponsesApi
             ? buildXAIResponsesRequestBody(request, bodyParams, convertXAIResponsesInput(processedMessages))
@@ -2342,6 +2388,10 @@ async function sendXaiRequest(request, response) {
             body: JSON.stringify(requestBody),
             signal: controller.signal,
         };
+
+        if (promptCacheKey && !useXAIResponsesApi) {
+            config.headers['x-grok-conv-id'] = promptCacheKey;
+        }
 
         console.debug('xAI request:', requestBody);
 

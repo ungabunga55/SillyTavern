@@ -294,7 +294,7 @@ const claudeLimitedSamplingModelRegexes = [
  * @returns {boolean} True if reasoning_effort can be sent
  */
 function isXaiReasoningEffortModel(model) {
-    return /^grok-4\.3(?:\b|-)/.test(String(model || ''));
+    return /^grok-4\.(?:3|5)(?:\b|-)/.test(String(model || ''));
 }
 
 /**
@@ -485,6 +485,7 @@ export const settingsToUpdate = {
     sort_models: ['#cc_sort_models', 'sort_models', false, true],
     openai_api_type: ['#openai_api_type', 'openai_api_type', false, false],
     xai_api_type: ['#xai_api_type', 'xai_api_type', false, false],
+    xai_prompt_caching: ['#xai_prompt_caching', 'xai_prompt_caching', true, true],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
@@ -658,6 +659,7 @@ const default_settings = {
     deepseek_model: 'deepseek-v4-flash',
     aimlapi_model: 'chatgpt-4o-latest',
     xai_model: 'grok-3-beta',
+    xai_prompt_caching: false,
     pollinations_model: 'openai',
     pollinations_endpoint: POLLINATIONS_ENDPOINT.AUTHENTICATED,
     cometapi_model: 'gpt-4o',
@@ -3562,6 +3564,11 @@ export async function createGenerationParameters(settings, model, type, messages
         if (isXaiGrok420OrNewerModel(model)) {
             delete generate_data.logprobs;
             delete generate_data.top_logprobs;
+        }
+
+        if (settings.xai_prompt_caching && type !== 'quiet') {
+            generate_data.xai_prompt_caching = true;
+            generate_data.chat_id = getCurrentChatId();
         }
     }
 
@@ -8238,6 +8245,11 @@ export function initOpenAI() {
 
     $('#xai_api_type').on('input', function () {
         oai_settings.xai_api_type = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#xai_prompt_caching').on('input', function () {
+        oai_settings.xai_prompt_caching = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

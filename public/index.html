@@ -4050,6 +4050,13 @@
                                     <option value="" data-i18n="-- Connect to the API --">-- Connect to the API --</option>
                                 </select>
                             </div>
+                            <label for="xai_prompt_caching" class="checkbox_label widthFreeExpand">
+                                <input id="xai_prompt_caching" type="checkbox" />
+                                <span data-i18n="Prompt caching affinity">Prompt caching affinity</span>
+                            </label>
+                            <div class="toggle-description justifyLeft" data-i18n="Sends an opaque per-chat routing ID to xAI to improve prompt cache hits. Raw chat names are not sent.">
+                                Sends an opaque per-chat routing ID to xAI to improve prompt cache hits. Raw chat names are not sent.
+                            </div>
                         </div>
                         <div id="aimlapi_form" data-source="aimlapi">
                             <h4>
