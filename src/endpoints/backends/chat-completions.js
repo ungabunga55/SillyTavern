@@ -310,6 +310,30 @@ function getOpenAIReasoningEffort(model, effort) {
 }
 
 /**
+ * Checks if an OpenAI model supports Responses reasoning.mode.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if reasoning.mode may be sent
+ */
+function isOpenAIReasoningModeModel(model) {
+    const modelId = String(model || '').toLowerCase();
+    return /^gpt-5\.(?:[6-9]|\d{2,})/.test(modelId) || /^gpt-(?:[6-9]|\d{2,})/.test(modelId);
+}
+
+/**
+ * Gets the OpenAI Responses-compatible reasoning mode for a model.
+ * @param {string} model Model identifier
+ * @param {string} mode User-selected mode
+ * @returns {string|undefined} Mode, if supported
+ */
+function getOpenAIReasoningMode(model, mode) {
+    if (!isOpenAIReasoningModeModel(model)) {
+        return undefined;
+    }
+
+    return ['standard', 'pro'].includes(mode) ? mode : undefined;
+}
+
+/**
  * Checks if a Responses request should omit sampling parameters.
  * @param {string} model Model identifier
  * @param {string|undefined} effort Reasoning effort
@@ -1319,10 +1343,14 @@ function buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) {
     }
 
     const effort = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
+    const mode = getOpenAIReasoningMode(request.body.model, request.body.reasoning_mode);
     const reasoning = {};
     if (effort) {
         reasoning.effort = effort;
         reasoning.context = 'current_turn';
+    }
+    if (mode) {
+        reasoning.mode = mode;
     }
     if (request.body.include_reasoning && OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
         reasoning.summary = 'auto';

@@ -2264,6 +2264,19 @@
                                         </div>
                                     </div>
                                     <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,openrouter,claude">
+                                        <div id="openai_reasoning_mode_block" class="flex-container oneline-dropdown marginBot10" title="Selects standard or pro execution for GPT-5.6 and newer GPT models on OpenAI's Responses API." data-source="openai" data-i18n="[title]Selects standard or pro execution for GPT-5.6 and newer GPT models on OpenAI's Responses API.">
+                                            <label for="openai_reasoning_mode">
+                                                <span data-i18n="Reasoning Mode">Reasoning Mode</span>
+                                            </label>
+                                            <select id="openai_reasoning_mode">
+                                                <option data-i18n="Auto" value="auto">Auto</option>
+                                                <option data-i18n="Standard" value="standard">Standard</option>
+                                                <option data-i18n="Pro" value="pro">Pro</option>
+                                            </select>
+                                            <div class="toggle-description justifyLeft marginBot5" data-i18n="OpenAI Responses API only. Auto omits reasoning.mode and uses the provider default. Pro performs more model work and can increase latency, token usage, and cost.">
+                                                OpenAI Responses API only. Auto omits <code>reasoning.mode</code> and uses the provider default. Pro performs more model work and can increase latency, token usage, and cost.
+                                            </div>
+                                        </div>
                                         <div class="flex-container oneline-dropdown">
                                             <label for="openai_verbosity">
                                                 <span data-i18n="Verbosity">Verbosity</span>

@@ -261,6 +261,12 @@ export const reasoning_effort_types = {
     max: 'max',
 };
 
+export const reasoning_mode_types = {
+    auto: 'auto',
+    standard: 'standard',
+    pro: 'pro',
+};
+
 export const verbosity_levels = {
     auto: 'auto',
     low: 'low',
@@ -434,6 +440,11 @@ function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
     return modelId.startsWith('gpt-5') && Boolean(reasoningEffort) && reasoningEffort !== 'none';
 }
 
+function isOpenAIReasoningModeModel(model) {
+    const modelId = String(model || '').toLowerCase();
+    return /^gpt-5\.(?:[6-9]|\d{2,})/.test(modelId) || /^gpt-(?:[6-9]|\d{2,})/.test(modelId);
+}
+
 export const ZAI_ENDPOINT = {
     COMMON: 'common',
     CODING: 'coding',
@@ -575,6 +586,7 @@ export const settingsToUpdate = {
     tool_call_recurse_limit: ['#tool_call_recurse_limit', 'tool_call_recurse_limit', false, false],
     show_thoughts: ['#openai_show_thoughts', 'show_thoughts', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
+    reasoning_mode: ['#openai_reasoning_mode', 'reasoning_mode', false, false],
     meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
     verbosity: ['#openai_verbosity', 'verbosity', false, false],
     enable_web_search: ['#openai_enable_web_search', 'enable_web_search', true, false],
@@ -732,6 +744,7 @@ const default_settings = {
     custom_prompt_post_processing: custom_prompt_post_processing_types.NONE,
     show_thoughts: true,
     reasoning_effort: reasoning_effort_types.auto,
+    reasoning_mode: reasoning_mode_types.auto,
     meta_reasoning_summary: 'auto',
     verbosity: verbosity_levels.auto,
     enable_web_search: false,
@@ -3362,6 +3375,29 @@ function getReasoningEffort(settings = null, model = null) {
 }
 
 /**
+ * Get the OpenAI Responses reasoning mode from chat completion settings.
+ * @param {ChatCompletionSettings} settings Chat completion settings
+ * @param {string} model Model name
+ * @returns {string|undefined} Reasoning mode, if supported and selected
+ */
+function getOpenAIReasoningMode(settings = null, model = null) {
+    settings = settings ?? oai_settings;
+    model = model ?? getChatCompletionModel(settings);
+
+    if (settings.chat_completion_source !== chat_completion_sources.OPENAI || settings.openai_api_type !== openai_api_types.RESPONSES) {
+        return undefined;
+    }
+
+    if (!isOpenAIReasoningModeModel(model)) {
+        return undefined;
+    }
+
+    return [reasoning_mode_types.standard, reasoning_mode_types.pro].includes(settings.reasoning_mode)
+        ? settings.reasoning_mode
+        : undefined;
+}
+
+/**
  * Get the verbosity from chat completion settings
  * @param {ChatCompletionSettings} settings Chat completion settings
  * @returns {string} Verbosity level, if present
@@ -3506,6 +3542,7 @@ export async function createGenerationParameters(settings, model, type, messages
         'group_names': getGroupNames(),
         'include_reasoning': Boolean(settings.show_thoughts),
         'reasoning_effort': getReasoningEffort(settings, model),
+        'reasoning_mode': getOpenAIReasoningMode(settings, model),
         'enable_web_search': Boolean(settings.enable_web_search),
         'request_images': Boolean(settings.request_images),
         'request_image_resolution': String(settings.request_image_resolution),
@@ -5505,8 +5542,12 @@ function setContinuePostfixControls() {
 
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
+    const isOpenAIResponses = oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
+    const supportsReasoningMode = isOpenAIResponses && isOpenAIReasoningModeModel(getChatCompletionModel(oai_settings));
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
+    $('#openai_reasoning_mode_block').toggle(isOpenAIResponses);
+    $('#openai_reasoning_mode').prop('disabled', !supportsReasoningMode);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
 }
 
@@ -7198,6 +7239,7 @@ async function onModelChange() {
     saveSettingsDebounced();
     updateOpenRouterSamplerSupportIndicators();
     updateFeatureSupportFlags();
+    setToolReasoningControls();
     eventSource.emit(event_types.CHATCOMPLETION_MODEL_CHANGED, value);
 }
 
@@ -8445,6 +8487,11 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
+    $('#openai_reasoning_mode').on('input', function () {
+        oai_settings.reasoning_mode = String($(this).val());
+        saveSettingsDebounced();
+    });
+
     $('#meta_reasoning_summary').on('input', function () {
         oai_settings.meta_reasoning_summary = String($(this).val());
         saveSettingsDebounced();
@@ -8452,6 +8499,7 @@ export function initOpenAI() {
 
     $('#openai_api_type').on('input', function () {
         oai_settings.openai_api_type = String($(this).val());
+        setToolReasoningControls();
         saveSettingsDebounced();
     });
 
