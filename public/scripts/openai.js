@@ -428,7 +428,7 @@ function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.5/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId)) {
         return true;
     }
     return modelId.startsWith('gpt-5') && Boolean(reasoningEffort) && reasoningEffort !== 'none';
@@ -3324,7 +3324,7 @@ function getReasoningEffort(settings = null, model = null) {
                 }
 
                 if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
-                    if (/^gpt-5\.(4|5)/.test(model)) {
+                    if (/^gpt-5\.(4|5|6)/.test(model)) {
                         return 'none';
                     }
                     if (/^gpt-5/.test(model)) {
@@ -3335,6 +3335,9 @@ function getReasoningEffort(settings = null, model = null) {
                 return reasoning_effort_types.low;
             case reasoning_effort_types.xhigh:
             case reasoning_effort_types.max:
+                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source) && /^gpt-5\.6/.test(model)) {
+                    return settings.reasoning_effort;
+                }
                 return reasoning_effort_types.high;
             default:
                 return settings.reasoning_effort;
@@ -6149,7 +6152,7 @@ function getMaxContextOpenAI(value) {
 
     /** @type {[RegExp, number][]} */
     const contextMap = [
-        [/^gpt-5\.[45]/, max_1mil],
+        [/^gpt-5\.[456]/, max_1mil],
         [/^gpt-5/, max_400k],
         [/gpt-4\.1/, max_1mil],
         [/gpt-audio/, max_128k],

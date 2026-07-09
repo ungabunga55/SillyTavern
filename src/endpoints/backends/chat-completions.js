@@ -297,6 +297,15 @@ function getOpenAIReasoningEffort(model, effort) {
         return undefined;
     }
 
+    if (/^gpt-5\.6/.test(String(model || '').toLowerCase())) {
+        if (effort === 'min') {
+            return 'none';
+        }
+        if (['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) {
+            return effort;
+        }
+    }
+
     return OPENAI_FIXED_REASONING_EFFORT[model] ?? OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
 }
 
@@ -311,7 +320,7 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.5/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId)) {
         return true;
     }
     return modelId.startsWith('gpt-5') && Boolean(effort) && effort !== 'none';
@@ -350,7 +359,7 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
                 if (!OPENAI_REASONING_EFFORT_MODELS.includes(nativeModel)) {
                     return undefined;
                 }
-                return OPENAI_FIXED_REASONING_EFFORT[nativeModel] ?? OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
+                return getOpenAIReasoningEffort(nativeModel, effort);
             case 'xai':
                 if (effort === 'min') {
                     return 'none';
@@ -3052,9 +3061,7 @@ async function sendAzureOpenAIRequest(request, response) {
     }
 
     // Do not send reasoning effort to models which do not support it
-    apiRequestBody['reasoning_effort'] = OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)
-        ? OPENAI_FIXED_REASONING_EFFORT[request.body.model] ?? OPENAI_REASONING_EFFORT_MAP[request.body.reasoning_effort] ?? request.body.reasoning_effort
-        : undefined;
+    apiRequestBody['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
 
     const controller = new AbortController();
     request.socket.removeAllListeners('close');
@@ -4007,7 +4014,7 @@ router.post('/generate', async function (request, response) {
                 bodyParams['reasoning_effort'] = request.body.reasoning_effort;
             }
             if (OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
-                bodyParams['reasoning_effort'] = OPENAI_FIXED_REASONING_EFFORT[request.body.model] ?? OPENAI_REASONING_EFFORT_MAP[request.body.reasoning_effort] ?? request.body.reasoning_effort;
+                bodyParams['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
             }
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM && /^koboldcpp\/(.+)$/.test(request.body.model)) {
                 bodyParams['reasoning_effort'] = request.body.reasoning_effort;
