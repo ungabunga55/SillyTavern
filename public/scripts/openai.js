@@ -497,6 +497,7 @@ export const settingsToUpdate = {
     group_models: ['#cc_group_models', 'group_models', true, true],
     sort_models: ['#cc_sort_models', 'sort_models', false, true],
     openai_api_type: ['#openai_api_type', 'openai_api_type', false, false],
+    openai_prompt_caching: ['#openai_prompt_caching', 'openai_prompt_caching', true, true],
     xai_api_type: ['#xai_api_type', 'xai_api_type', false, false],
     xai_prompt_caching: ['#xai_prompt_caching', 'xai_prompt_caching', true, true],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
@@ -665,6 +666,7 @@ const default_settings = {
     sort_models: 'alphabetically',
     group_models: false,
     openai_api_type: openai_api_types.CHAT_COMPLETIONS,
+    openai_prompt_caching: false,
     xai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_model: 'gpt-4-turbo',
     claude_model: 'claude-sonnet-4-5',
@@ -3553,6 +3555,10 @@ export async function createGenerationParameters(settings, model, type, messages
 
     if (settings.chat_completion_source === chat_completion_sources.OPENAI) {
         generate_data.openai_api_type = settings.openai_api_type || openai_api_types.CHAT_COMPLETIONS;
+        if (settings.openai_prompt_caching && settings.openai_api_type === openai_api_types.RESPONSES && type !== 'quiet') {
+            generate_data.openai_prompt_caching = true;
+            generate_data.chat_id = getCurrentChatId();
+        }
     }
 
     if (settings.chat_completion_source === chat_completion_sources.XAI) {
@@ -5548,6 +5554,7 @@ function setToolReasoningControls() {
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
     $('#openai_reasoning_mode_block').toggle(isOpenAIResponses);
     $('#openai_reasoning_mode').prop('disabled', !supportsReasoningMode);
+    $('#openai_prompt_caching').prop('disabled', !isOpenAIResponses);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
 }
 
@@ -8500,6 +8507,11 @@ export function initOpenAI() {
     $('#openai_api_type').on('input', function () {
         oai_settings.openai_api_type = String($(this).val());
         setToolReasoningControls();
+        saveSettingsDebounced();
+    });
+
+    $('#openai_prompt_caching').on('input', function () {
+        oai_settings.openai_prompt_caching = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

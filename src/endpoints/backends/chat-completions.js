@@ -98,6 +98,7 @@ const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
 const API_FIREWORKS_MODELS = 'https://api.fireworks.ai/v1';
 const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/glm-5p2';
 const FIREWORKS_LEGACY_DEFAULT_MODEL = 'accounts/fireworks/models/kimi-k2-instruct';
+const OPENAI_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern OpenAI prompt cache key v1';
 const FIREWORKS_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern Fireworks prompt cache affinity v1';
 const XAI_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern xAI prompt cache key v1';
 const FIREWORKS_SERVERLESS_MODELS = [
@@ -147,6 +148,7 @@ const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+let openaiPromptCacheHmacKey;
 let fireworksPromptCacheHmacKey;
 let xaiPromptCacheHmacKey;
 const CLAUDE_LEGACY_SAMPLING_MODEL_REGEXES = [
@@ -832,6 +834,44 @@ function getFireworksSessionAffinity(request) {
 }
 
 /**
+ * Gets a purpose-specific HMAC key for OpenAI prompt caching.
+ * @returns {Buffer} Derived HMAC key
+ */
+function getOpenAIPromptCacheHmacKey() {
+    if (!openaiPromptCacheHmacKey) {
+        openaiPromptCacheHmacKey = createHmac('sha256', getCookieSecret(globalThis.DATA_ROOT))
+            .update(OPENAI_PROMPT_CACHE_HMAC_CONTEXT)
+            .digest();
+    }
+
+    return openaiPromptCacheHmacKey;
+}
+
+/**
+ * Builds an opaque OpenAI prompt-cache key from the current local chat.
+ * @param {express.Request} request Express request
+ * @returns {string|undefined} Prompt cache key
+ */
+function getOpenAIPromptCacheKey(request) {
+    if (!request.body.openai_prompt_caching || typeof request.body.chat_id !== 'string') {
+        return undefined;
+    }
+
+    const chatId = request.body.chat_id.slice(0, 512);
+    if (!chatId) {
+        return undefined;
+    }
+
+    const userHandle = typeof request.user?.profile?.handle === 'string' ? request.user.profile.handle : '';
+    return createHmac('sha256', getOpenAIPromptCacheHmacKey())
+        .update(userHandle)
+        .update('\0')
+        .update(chatId)
+        .digest('hex')
+        .slice(0, 32);
+}
+
+/**
  * Gets a purpose-specific HMAC key for xAI prompt caching.
  * @returns {Buffer} Derived HMAC key
  */
@@ -1379,6 +1419,7 @@ function buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) {
         reasoning: Object.keys(reasoning).length ? reasoning : undefined,
         top_logprobs: bodyParams.top_logprobs,
         include: include.length ? include : undefined,
+        prompt_cache_key: bodyParams.prompt_cache_key,
         user: bodyParams.user,
     });
 }
@@ -3657,6 +3698,11 @@ router.post('/generate', async function (request, response) {
 
             if (getConfigValue('openai.randomizeUserId', false, 'boolean')) {
                 bodyParams['user'] = uuidv4();
+            }
+
+            const promptCacheKey = getOpenAIPromptCacheKey(request);
+            if (promptCacheKey && useOpenAIResponsesApi) {
+                bodyParams['prompt_cache_key'] = promptCacheKey;
             }
 
             embedOpenRouterMedia(request.body.messages, { audio: true, video: false });
