@@ -2,6 +2,7 @@
 import process from 'node:process';
 import util from 'node:util';
 import { createHmac } from 'node:crypto';
+import { Transform } from 'node:stream';
 import express from 'express';
 import fetch from 'node-fetch';
 import urlJoin from 'url-join';
@@ -88,6 +89,7 @@ const API_FEATHERLESS = 'https://api.featherless.ai/v1';
 const API_NANOGPT = 'https://nano-gpt.com/api/v1';
 const API_DEEPSEEK = 'https://api.deepseek.com/beta';
 const API_XAI = 'https://api.x.ai/v1';
+const API_META = 'https://api.meta.ai/v1';
 const API_AIMLAPI = 'https://api.aimlapi.com/v1';
 const API_POLLINATIONS = 'https://gen.pollinations.ai/v1';
 const API_POLLINATIONS_ANON = 'https://text.pollinations.ai/v1';
@@ -900,6 +902,13 @@ function convertOpenAIResponsesContent(content) {
             });
         }
 
+        if (part?.type === 'video_url') {
+            return removeUndefinedValues({
+                type: 'input_video',
+                video_url: part.video_url?.url ?? part.video_url,
+            });
+        }
+
         if (part?.type === 'input_audio') {
             return part;
         }
@@ -1116,6 +1125,166 @@ function convertOpenAIResponsesToolChoice(toolChoice) {
     }
 
     return toolChoice;
+}
+
+/**
+ * Reads the Meta Model API key from saved secrets, falling back to the official MODEL_API_KEY env var.
+ * @param {import('express').Request} request Express request
+ * @returns {string|undefined} API key
+ */
+function getMetaApiKey(request) {
+    return readSecret(request.user.directories, SECRET_KEYS.META, request.body.secret_id) || process.env.MODEL_API_KEY;
+}
+
+/**
+ * Builds a native Meta Responses request body.
+ * @param {import('express').Request} request Express request
+ * @param {object} bodyParams Provider-specific body params
+ * @param {{instructions: string|undefined, input: object[]}} responsesInput Responses input
+ * @returns {object} Responses request body
+ */
+function buildMetaResponsesRequestBody(request, bodyParams, responsesInput) {
+    const text = {};
+    if (request.body.json_schema) {
+        text.format = removeUndefinedValues({
+            type: 'json_schema',
+            name: request.body.json_schema.name,
+            description: request.body.json_schema.description,
+            strict: request.body.json_schema.strict ?? true,
+            schema: request.body.json_schema.value,
+        });
+    }
+
+    const reasoning = {};
+    if (request.body.reasoning_effort && request.body.reasoning_effort !== 'none') {
+        reasoning.effort = request.body.reasoning_effort;
+    }
+    if (request.body.include_reasoning) {
+        const summaryProfile = ['auto', 'concise', 'detailed'].includes(request.body.reasoning_summary)
+            ? request.body.reasoning_summary
+            : 'auto';
+        reasoning.summary = summaryProfile;
+    }
+
+    const tools = convertOpenAIResponsesTools(bodyParams.tools) || [];
+    if (request.body.enable_web_search) {
+        tools.push({ type: 'web_search' });
+    }
+
+    return removeUndefinedValues({
+        model: request.body.model || 'muse-spark-1.1',
+        instructions: responsesInput.instructions,
+        input: responsesInput.input,
+        store: false,
+        stream: request.body.stream,
+        temperature: request.body.temperature,
+        top_p: request.body.top_p,
+        frequency_penalty: request.body.frequency_penalty,
+        presence_penalty: request.body.presence_penalty,
+        max_output_tokens: request.body.max_completion_tokens ?? request.body.max_tokens,
+        tools: tools.length ? tools : undefined,
+        tool_choice: tools.length ? 'auto' : undefined,
+        text: Object.keys(text).length ? text : undefined,
+        reasoning: Object.keys(reasoning).length ? reasoning : undefined,
+    });
+}
+
+/**
+ * Removes opaque encrypted reasoning content from Meta Responses objects.
+ * @param {any} value Response object or nested value
+ * @returns {any} Sanitized value
+ */
+function stripMetaEncryptedReasoning(value) {
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            stripMetaEncryptedReasoning(item);
+        }
+        return value;
+    }
+
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    if (value.type === 'reasoning') {
+        delete value.encrypted_content;
+    }
+
+    for (const item of Object.values(value)) {
+        stripMetaEncryptedReasoning(item);
+    }
+
+    return value;
+}
+
+/**
+ * Strips encrypted reasoning content from a single SSE event chunk.
+ * @param {string} event Server-sent event chunk
+ * @returns {string} Sanitized event chunk
+ */
+function sanitizeMetaResponsesSseEvent(event) {
+    return event.split(/\r?\n/).map(line => {
+        const match = line.match(/^(data:\s?)(.*)$/);
+        if (!match || match[2] === '[DONE]') {
+            return line;
+        }
+
+        const data = tryParse(match[2]);
+        if (!data) {
+            return line;
+        }
+
+        stripMetaEncryptedReasoning(data);
+        return `${match[1]}${JSON.stringify(data)}`;
+    }).join('\n');
+}
+
+/**
+ * Pipes a Meta Responses stream while removing encrypted reasoning content.
+ * @param {import('node-fetch').Response} from The Fetch API response to pipe from
+ * @param {import('express').Response} to The Express response to pipe to
+ * @returns {Promise<void>}
+ */
+async function forwardSanitizedMetaResponsesStream(from, to) {
+    if (!from.ok || !from.body || !to.socket) {
+        return forwardFetchResponse(from, to);
+    }
+
+    to.statusCode = from.status === 401 ? 400 : from.status;
+    to.statusMessage = from.statusText;
+
+    let pending = '';
+    const sanitizer = new Transform({
+        transform(chunk, _encoding, callback) {
+            pending += chunk.toString('utf8');
+            const events = pending.split(/\r?\n\r?\n/);
+            pending = events.pop() || '';
+            for (const event of events) {
+                this.push(`${sanitizeMetaResponsesSseEvent(event)}\n\n`);
+            }
+            callback();
+        },
+        flush(callback) {
+            if (pending) {
+                this.push(sanitizeMetaResponsesSseEvent(pending));
+            }
+            callback();
+        },
+    });
+
+    from.body.pipe(sanitizer).pipe(to);
+
+    to.socket.on('close', function () {
+        if (from.body) {
+            from.body.destroy();
+        }
+        to.end();
+    });
+
+    from.body.on('end', function () {
+        console.info('Streaming request finished');
+        to.end();
+    });
 }
 
 /**
@@ -2989,6 +3158,10 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = new URL(request.body.reverse_proxy || API_XAI).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.XAI, request.body.secret_id);
             headers = {};
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.META) {
+            apiUrl = API_META;
+            apiKey = getMetaApiKey(request);
+            headers = {};
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.AIMLAPI) {
             apiUrl = API_AIMLAPI;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.AIMLAPI, request.body.secret_id);
@@ -3430,6 +3603,7 @@ router.post('/generate', async function (request, response) {
         let bodyParams;
         const isTextCompletion = Boolean(request.body.model && TEXT_COMPLETION_MODELS.includes(request.body.model)) || typeof request.body.messages === 'string';
         const useOpenAIResponsesApi = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI && request.body.openai_api_type === 'responses';
+        const useMetaResponsesApi = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.META;
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI) {
             apiUrl = new URL(request.body.reverse_proxy || API_OPENAI).toString();
@@ -3634,6 +3808,15 @@ router.post('/generate', async function (request, response) {
             if (enabledParameters.has('repetition_penalty') && request.body.repetition_penalty !== undefined) {
                 bodyParams['repetition_penalty'] = request.body.repetition_penalty;
             }
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.META) {
+            apiUrl = API_META;
+            apiKey = getMetaApiKey(request);
+            headers = {};
+            bodyParams = {};
+            if (!request.body.model) {
+                request.body.model = 'muse-spark-1.1';
+            }
+            embedOpenRouterMedia(request.body.messages, { audio: false, video: true });
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
             apiUrl = API_FIREWORKS;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS, request.body.secret_id);
@@ -3819,7 +4002,7 @@ router.post('/generate', async function (request, response) {
         }
 
         // Some OpenAI-compatible providers support reasoning effort.
-        if (!useOpenAIResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI, CHAT_COMPLETION_SOURCES.REQUESTY].includes(request.body.chat_completion_source)) {
+        if (!useOpenAIResponsesApi && !useMetaResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI, CHAT_COMPLETION_SOURCES.REQUESTY].includes(request.body.chat_completion_source)) {
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
                 bodyParams['reasoning_effort'] = request.body.reasoning_effort;
             }
@@ -3831,14 +4014,14 @@ router.post('/generate', async function (request, response) {
             }
         }
 
-        if (!useOpenAIResponsesApi && request.body.verbosity && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
+        if (!useOpenAIResponsesApi && !useMetaResponsesApi && request.body.verbosity && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
             if (OPENAI_VERBOSITY_MODELS.test(request.body.model)) {
                 bodyParams['verbosity'] = request.body.verbosity;
             }
         }
 
         if (!apiKey && !request.body.reverse_proxy && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.CUSTOM) {
-            console.warn('OpenAI API key is missing.');
+            console.warn('Chat Completion API key is missing.');
             return response.status(400).send({ error: true });
         }
 
@@ -3848,7 +4031,7 @@ router.post('/generate', async function (request, response) {
         }
 
         const textPrompt = isTextCompletion ? convertTextCompletionPrompt(request.body.messages) : '';
-        const endpointUrl = useOpenAIResponsesApi ?
+        const endpointUrl = useOpenAIResponsesApi || useMetaResponsesApi ?
             `${apiUrl}/responses` :
             isTextCompletion && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.OPENROUTER ?
             `${apiUrl}/completions` :
@@ -3892,27 +4075,34 @@ router.post('/generate', async function (request, response) {
             };
         }
 
-        const responsesInput = useOpenAIResponsesApi
+        const responsesInput = useOpenAIResponsesApi || useMetaResponsesApi
             ? convertOpenAIResponsesInput(isTextCompletion ? textPrompt : request.body.messages)
             : undefined;
-        const requestBody = useOpenAIResponsesApi ? buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) : {
-            'messages': isTextCompletion === false ? request.body.messages : undefined,
-            'prompt': isTextCompletion === true ? textPrompt : undefined,
-            'model': request.body.model,
-            'temperature': request.body.temperature,
-            'max_tokens': request.body.max_tokens,
-            'max_completion_tokens': request.body.max_completion_tokens,
-            'stream': request.body.stream,
-            'presence_penalty': request.body.presence_penalty,
-            'frequency_penalty': request.body.frequency_penalty,
-            'top_p': request.body.top_p,
-            'top_k': request.body.top_k,
-            'stop': isTextCompletion === false ? request.body.stop : undefined,
-            'logit_bias': request.body.logit_bias,
-            'seed': request.body.seed,
-            'n': request.body.n,
-            ...bodyParams,
-        };
+        let requestBody;
+        if (useOpenAIResponsesApi) {
+            requestBody = buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput);
+        } else if (useMetaResponsesApi) {
+            requestBody = buildMetaResponsesRequestBody(request, bodyParams, responsesInput);
+        } else {
+            requestBody = {
+                'messages': isTextCompletion === false ? request.body.messages : undefined,
+                'prompt': isTextCompletion === true ? textPrompt : undefined,
+                'model': request.body.model,
+                'temperature': request.body.temperature,
+                'max_tokens': request.body.max_tokens,
+                'max_completion_tokens': request.body.max_completion_tokens,
+                'stream': request.body.stream,
+                'presence_penalty': request.body.presence_penalty,
+                'frequency_penalty': request.body.frequency_penalty,
+                'top_p': request.body.top_p,
+                'top_k': request.body.top_k,
+                'stop': isTextCompletion === false ? request.body.stop : undefined,
+                'logit_bias': request.body.logit_bias,
+                'seed': request.body.seed,
+                'n': request.body.n,
+                ...bodyParams,
+            };
+        }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && isMoonshotKimiFixedParameterModel(request.body.model)) {
             delete requestBody.temperature;
@@ -3967,12 +4157,18 @@ router.post('/generate', async function (request, response) {
 
         if (request.body.stream) {
             console.info('Streaming request in progress');
+            if (useMetaResponsesApi) {
+                return await forwardSanitizedMetaResponsesStream(fetchResponse, response);
+            }
             return await forwardFetchResponse(fetchResponse, response);
         }
 
         if (fetchResponse.ok) {
             /** @type {any} */
             const json = await fetchResponse.json();
+            if (useMetaResponsesApi) {
+                stripMetaEncryptedReasoning(json);
+            }
             console.debug('Chat Completion response:', json);
             return response.send(json);
         } else {

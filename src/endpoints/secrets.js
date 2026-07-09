@@ -57,6 +57,7 @@ export const SECRET_KEYS = {
     DEEPSEEK: 'api_key_deepseek',
     SERPER: 'api_key_serper',
     AIMLAPI: 'api_key_aimlapi',
+    META: 'api_key_meta',
     XAI: 'api_key_xai',
     FIREWORKS: 'api_key_fireworks',
     VERTEXAI_SERVICE_ACCOUNT: 'vertexai_service_account_json',

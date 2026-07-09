@@ -710,6 +710,7 @@ export class ToolManager {
             chat_completion_sources.MAKERSUITE,
             chat_completion_sources.VERTEXAI,
             chat_completion_sources.AI21,
+            chat_completion_sources.META,
             chat_completion_sources.XAI,
             chat_completion_sources.POLLINATIONS,
             chat_completion_sources.MOONSHOT,

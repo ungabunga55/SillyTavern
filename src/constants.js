@@ -202,6 +202,7 @@ export const CHAT_COMPLETION_SOURCES = {
     NANOGPT: 'nanogpt',
     DEEPSEEK: 'deepseek',
     AIMLAPI: 'aimlapi',
+    META: 'meta',
     XAI: 'xai',
     POLLINATIONS: 'pollinations',
     MOONSHOT: 'moonshot',

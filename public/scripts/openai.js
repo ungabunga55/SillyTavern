@@ -200,6 +200,7 @@ export const chat_completion_sources = {
     NANOGPT: 'nanogpt',
     DEEPSEEK: 'deepseek',
     AIMLAPI: 'aimlapi',
+    META: 'meta',
     XAI: 'xai',
     POLLINATIONS: 'pollinations',
     MOONSHOT: 'moonshot',
@@ -519,6 +520,7 @@ export const settingsToUpdate = {
     nanogpt_service_tier: ['#nanogpt_service_tier', 'nanogpt_service_tier', false, true],
     deepseek_model: ['#model_deepseek_select', 'deepseek_model', false, true],
     aimlapi_model: ['#model_aimlapi_select', 'aimlapi_model', false, true],
+    meta_model: ['#model_meta_select', 'meta_model', false, true],
     xai_model: ['#model_xai_select', 'xai_model', false, true],
     pollinations_model: ['#model_pollinations_select', 'pollinations_model', false, true],
     pollinations_endpoint: ['#pollinations_endpoint', 'pollinations_endpoint', false, true],
@@ -573,6 +575,7 @@ export const settingsToUpdate = {
     tool_call_recurse_limit: ['#tool_call_recurse_limit', 'tool_call_recurse_limit', false, false],
     show_thoughts: ['#openai_show_thoughts', 'show_thoughts', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
+    meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
     verbosity: ['#openai_verbosity', 'verbosity', false, false],
     enable_web_search: ['#openai_enable_web_search', 'enable_web_search', true, false],
     seed: ['#seed_openai', 'seed', false, false],
@@ -676,6 +679,7 @@ const default_settings = {
     nanogpt_service_tier: '',
     deepseek_model: 'deepseek-v4-flash',
     aimlapi_model: 'chatgpt-4o-latest',
+    meta_model: 'muse-spark-1.1',
     xai_model: 'grok-3-beta',
     xai_prompt_caching: false,
     pollinations_model: 'openai',
@@ -728,6 +732,7 @@ const default_settings = {
     custom_prompt_post_processing: custom_prompt_post_processing_types.NONE,
     show_thoughts: true,
     reasoning_effort: reasoning_effort_types.auto,
+    meta_reasoning_summary: 'auto',
     verbosity: verbosity_levels.auto,
     enable_web_search: false,
     request_images: false,
@@ -1980,6 +1985,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.deepseek_model;
         case chat_completion_sources.AIMLAPI:
             return settings.aimlapi_model;
+        case chat_completion_sources.META:
+            return settings.meta_model;
         case chat_completion_sources.XAI:
             return settings.xai_model;
         case chat_completion_sources.POLLINATIONS:
@@ -2405,6 +2412,21 @@ function saveModelList(data) {
         }
 
         $('#model_aimlapi_select').val(oai_settings.aimlapi_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.META) {
+        $('#model_meta_select').empty();
+        const models = model_list.length > 0 ? model_list : [{ id: 'muse-spark-1.1' }];
+        models.forEach((model) => {
+            $('#model_meta_select').append(new Option(model.id, model.id));
+        });
+
+        const selectedModel = models.find(model => model.id === oai_settings.meta_model);
+        if (!selectedModel || !oai_settings.meta_model) {
+            oai_settings.meta_model = models[0].id;
+        }
+
+        $('#model_meta_select').val(oai_settings.meta_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
@@ -3151,6 +3173,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.POLLINATIONS,
         chat_completion_sources.PERPLEXITY,
         chat_completion_sources.COMETAPI,
+        chat_completion_sources.META,
         chat_completion_sources.ELECTRONHUB,
         chat_completion_sources.CHUTES,
         chat_completion_sources.DEEPSEEK,
@@ -3238,6 +3261,19 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.xhigh:
                 case reasoning_effort_types.max:
                     return reasoning_effort_types.high;
+                default:
+                    return settings.reasoning_effort;
+            }
+        }
+
+        if (settings.chat_completion_source === chat_completion_sources.META) {
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.min:
+                    return 'minimal';
+                case reasoning_effort_types.max:
+                    return reasoning_effort_types.xhigh;
                 default:
                     return settings.reasoning_effort;
             }
@@ -3481,6 +3517,17 @@ export async function createGenerationParameters(settings, model, type, messages
 
     if (settings.chat_completion_source === chat_completion_sources.XAI) {
         generate_data.xai_api_type = settings.xai_api_type || openai_api_types.CHAT_COMPLETIONS;
+    }
+
+    if (settings.chat_completion_source === chat_completion_sources.META) {
+        generate_data.max_completion_tokens = generate_data.max_tokens;
+        generate_data.reasoning_summary = settings.meta_reasoning_summary || 'auto';
+        delete generate_data.max_tokens;
+        generate_data.top_p = generate_data.top_p || Number.EPSILON;
+        delete generate_data.seed;
+        delete generate_data.logit_bias;
+        delete generate_data.stop;
+        delete generate_data.n;
     }
 
     if (settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
@@ -3978,6 +4025,7 @@ export async function createGenerationParameters(settings, model, type, messages
  */
 function isNativeResponsesSource(source, settings = oai_settings) {
     return (source === chat_completion_sources.OPENAI && settings.openai_api_type === openai_api_types.RESPONSES)
+        || source === chat_completion_sources.META
         || (source === chat_completion_sources.XAI && settings.xai_api_type === openai_api_types.RESPONSES);
 }
 
@@ -3988,6 +4036,7 @@ function isNativeResponsesSource(source, settings = oai_settings) {
  */
 function isNativeResponsesRequest(data) {
     return (data?.chat_completion_source === chat_completion_sources.OPENAI && data?.openai_api_type === openai_api_types.RESPONSES)
+        || data?.chat_completion_source === chat_completion_sources.META
         || (data?.chat_completion_source === chat_completion_sources.XAI && data?.xai_api_type === openai_api_types.RESPONSES);
 }
 
@@ -6721,6 +6770,15 @@ async function onModelChange() {
         oai_settings.aimlapi_model = value;
     }
 
+    if ($(this).is('#model_meta_select')) {
+        if (!value) {
+            console.debug('Null Meta model selected. Ignoring.');
+            return;
+        }
+        console.log('Meta model changed to', value);
+        oai_settings.meta_model = value;
+    }
+
     if ($(this).is('#model_xai_select')) {
         if (!value) {
             console.debug('Null XAI model selected. Ignoring.');
@@ -6992,6 +7050,14 @@ async function onModelChange() {
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.META) {
+        const maxContext = oai_settings.max_context_unlocked ? unlocked_max : 1048576;
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+    }
+
     if (oai_settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
@@ -7170,6 +7236,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.ELECTRONHUB]: { key: SECRET_KEYS.ELECTRONHUB, selector: '#api_key_electronhub', proxy: false },
         [chat_completion_sources.NANOGPT]: { key: SECRET_KEYS.NANOGPT, selector: '#api_key_nanogpt', proxy: false },
         [chat_completion_sources.DEEPSEEK]: { key: SECRET_KEYS.DEEPSEEK, selector: '#api_key_deepseek', proxy: true },
+        [chat_completion_sources.META]: { key: SECRET_KEYS.META, selector: '#api_key_meta', proxy: false, keyless: true },
         [chat_completion_sources.XAI]: { key: SECRET_KEYS.XAI, selector: '#api_key_xai', proxy: true },
         [chat_completion_sources.AIMLAPI]: { key: SECRET_KEYS.AIMLAPI, selector: '#api_key_aimlapi', proxy: false },
         [chat_completion_sources.MOONSHOT]: { key: SECRET_KEYS.MOONSHOT, selector: '#api_key_moonshot', proxy: true },
@@ -7265,6 +7332,8 @@ function toggleChatCompletionForms() {
         $('#model_deepseek_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.AIMLAPI) {
         $('#model_aimlapi_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.META) {
+        $('#model_meta_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.XAI) {
         $('#model_xai_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.POLLINATIONS) {
@@ -7422,6 +7491,8 @@ export function isImageInliningSupported() {
         // xAI (Grok)
         'grok-4',
         'grok-2-vision',
+        // Meta Model API
+        'muse-spark-1.1',
         // Moonshot
         'moonshot-v1-8k-vision-preview',
         'moonshot-v1-32k-vision-preview',
@@ -7475,6 +7546,8 @@ export function isImageInliningSupported() {
         case chat_completion_sources.XAI:
             // TODO: xAI's /models endpoint doesn't return modality info
             return visionSupportedModels.some(model => oai_settings.xai_model.includes(model));
+        case chat_completion_sources.META:
+            return visionSupportedModels.some(model => oai_settings.meta_model.includes(model));
         case chat_completion_sources.AIMLAPI:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.aimlapi_model)?.features?.includes('openai/chat-completion.vision'));
         case chat_completion_sources.CHUTES:
@@ -7536,6 +7609,8 @@ export function isVideoInliningSupported() {
         'glm-4.5v',
         'glm-4.6v',
         'glm-5v-turbo',
+        // Meta Model API
+        'muse-spark-1.1',
     ];
 
     switch (oai_settings.chat_completion_source) {
@@ -7545,6 +7620,8 @@ export function isVideoInliningSupported() {
             return videoSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
         case chat_completion_sources.OPENROUTER:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('video'));
+        case chat_completion_sources.META:
+            return videoSupportedModels.some(model => oai_settings.meta_model.includes(model));
         case chat_completion_sources.MOONSHOT:
             return videoSupportedModels.some(model => String(oai_settings.moonshot_model || '').includes(model));
         case chat_completion_sources.ZAI:
@@ -8365,6 +8442,11 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
+    $('#meta_reasoning_summary').on('input', function () {
+        oai_settings.meta_reasoning_summary = String($(this).val());
+        saveSettingsDebounced();
+    });
+
     $('#openai_api_type').on('input', function () {
         oai_settings.openai_api_type = String($(this).val());
         saveSettingsDebounced();
@@ -8581,6 +8663,7 @@ export function initOpenAI() {
     $('#model_nanogpt_select').on('change', onModelChange);
     $('#model_deepseek_select').on('change', onModelChange);
     $('#model_aimlapi_select').on('change', onModelChange);
+    $('#model_meta_select').on('change', onModelChange);
     $('#model_custom_select').on('change', onModelChange);
     $('#model_xai_select').on('change', onModelChange);
     $('#model_pollinations_select').on('change', onModelChange);
