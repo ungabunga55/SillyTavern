@@ -123,6 +123,7 @@ router.post('/models/image', async (req, res) => {
             .filter(m => m.architecture.input_modalities.includes('text'))
             .filter(m => Array.isArray(m?.architecture?.output_modalities))
             .filter(m => m.architecture.output_modalities.includes('image'))
+            .filter(m => !/(?:^|[-/])vector(?:$|[-/])/i.test(String(m?.id || '')))
             .sort((a, b) => a?.id && b?.id ? a.id.localeCompare(b.id) : 0)
             .map(m => ({
                 value: m.id,

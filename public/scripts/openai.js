@@ -4231,7 +4231,8 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
                         state.responsesStreamedText = true;
                     }
                     ToolManager.parseToolCalls(toolCalls, parsed, state.toolSignatures);
-                    yield { text, swipes: swipes, logprobs: null, toolCalls: toolCalls, state: state };
+                    const logprobs = parseOpenAIResponsesEventLogprobs(parsed);
+                    yield { text, swipes: swipes, logprobs, toolCalls: toolCalls, state: state };
                     if (['response.completed', 'response.failed', 'response.incomplete', 'response.cancelled'].includes(parsed?.type)) {
                         return;
                     }
@@ -4264,7 +4265,9 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
         }
 
         if (type !== 'quiet') {
-            const logprobs = parseChatCompletionLogprobs(data);
+            const logprobs = isResponsesRequest
+                ? parseOpenAIResponsesLogprobs(data)
+                : parseChatCompletionLogprobs(data);
             // Delay is required to allow the active message to be updated to
             // the one we are generating (happens right after sendOpenAIRequest)
             delay(1).then(() => saveLogprobsForActiveMessage(logprobs, null));
@@ -4418,6 +4421,38 @@ function parseChatCompletionLogprobs(data) {
 }
 
 /**
+ * Parses token probabilities from a non-streaming Responses API payload.
+ * @param {object} data Responses API payload
+ * @returns {import('./logprobs.js').TokenLogprobs[] | null} Converted logprobs
+ */
+function parseOpenAIResponsesLogprobs(data) {
+    if (!Array.isArray(data?.output)) {
+        return null;
+    }
+
+    const logprobs = data.output
+        .filter(item => item?.type === 'message')
+        .flatMap(item => Array.isArray(item.content) ? item.content : [])
+        .filter(part => part?.type === 'output_text')
+        .flatMap(part => Array.isArray(part.logprobs) ? part.logprobs : []);
+
+    return logprobs.length ? parseOpenAIChatLogprobs({ content: logprobs }) : null;
+}
+
+/**
+ * Parses token probabilities from a Responses API streaming delta.
+ * @param {object} data Responses API event
+ * @returns {import('./logprobs.js').TokenLogprobs[] | null} Converted logprobs
+ */
+function parseOpenAIResponsesEventLogprobs(data) {
+    if (!['response.output_text.delta', 'response.text.delta'].includes(data?.type) || !Array.isArray(data.logprobs) || !data.logprobs.length) {
+        return null;
+    }
+
+    return parseOpenAIChatLogprobs({ content: data.logprobs });
+}
+
+/**
  * parseOpenAIChatLogprobs receives a `logprobs` response from OpenAI's chat
  * completion API and converts into the structure used by the Token Probabilities
  * view.
@@ -4434,16 +4469,21 @@ function parseOpenAIChatLogprobs(logprobs) {
     /** @type {(x: { token: string, logprob: number }) => [string, number]} */
     const toTuple = (x) => [x.token, x.logprob];
 
-    return content.map(({ token, logprob, top_logprobs = [] }) => {
-        // Add the chosen token to top_logprobs if it's not already there, then
-        // convert to a list of [token, logprob] pairs
-        const chosenTopToken = top_logprobs.some((top) => token === top.token);
-        /** @type {import('./logprobs.js').Candidate[]} */
-        const topLogprobs = chosenTopToken
-            ? top_logprobs.map(toTuple)
-            : [...top_logprobs.map(toTuple), [token, logprob]];
-        return { token, topLogprobs };
-    });
+    return content
+        .filter(({ token, logprob }) => typeof token === 'string' && typeof logprob === 'number')
+        .map(({ token, logprob, top_logprobs }) => {
+            const candidates = Array.isArray(top_logprobs)
+                ? top_logprobs.filter(top => typeof top?.token === 'string' && typeof top?.logprob === 'number')
+                : [];
+            // Add the chosen token to top_logprobs if it's not already there, then
+            // convert to a list of [token, logprob] pairs
+            const chosenTopToken = candidates.some((top) => token === top.token);
+            /** @type {import('./logprobs.js').Candidate[]} */
+            const topLogprobs = chosenTopToken
+                ? candidates.map(toTuple)
+                : [...candidates.map(toTuple), [token, logprob]];
+            return { token, topLogprobs };
+        });
 }
 
 /**
@@ -7422,11 +7462,15 @@ function toggleChatCompletionForms() {
 
 function updateModelSortingControls() {
     const isNanoGpt = oai_settings.chat_completion_source === chat_completion_sources.NANOGPT;
+    const isNvidia = oai_settings.chat_completion_source === chat_completion_sources.NVIDIA;
     const $sortModels = $('#cc_sort_models');
+    const $nvidiaUnsupportedSorts = $sortModels.find('option[value="pricing.prompt"], option[value="pricing.completion"], option[value="context_length"]');
 
     $sortModels.find('option[data-source="nanogpt"]').prop('hidden', !isNanoGpt).toggle(isNanoGpt);
+    $nvidiaUnsupportedSorts.prop('hidden', isNvidia).toggle(!isNvidia);
 
-    if (!isNanoGpt && nanogpt_sort_models.has(String($sortModels.val()))) {
+    const unsupportedNvidiaSort = isNvidia && ['pricing.prompt', 'pricing.completion', 'context_length'].includes(String($sortModels.val()));
+    if ((!isNanoGpt && nanogpt_sort_models.has(String($sortModels.val()))) || unsupportedNvidiaSort) {
         oai_settings.sort_models = default_settings.sort_models;
         $sortModels.val(oai_settings.sort_models);
     }

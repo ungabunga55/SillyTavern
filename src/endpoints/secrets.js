@@ -115,7 +115,12 @@ const SECRET_SETTINGS_KEY = '_settings';
 const DEFAULT_SECRET_SETTINGS = Object.freeze({
     autoRotateKeys: false,
 });
-const ROTATABLE_SECRET_KEYS = new Set(Object.values(SECRET_KEYS).filter(key => key !== SECRET_KEYS._MIGRATED));
+const ROTATABLE_SECRET_KEYS = new Set([
+    ...Object.values(SECRET_KEYS).filter(key => key.startsWith('api_key_')),
+    // Legacy API-key names predate the api_key_ prefix convention.
+    SECRET_KEYS.DEEPL,
+    SECRET_KEYS.LIBRE,
+]);
 
 export const allowKeysExposure = !!getConfigValue('allowKeysExposure', false, 'boolean');
 

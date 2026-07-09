@@ -1460,7 +1460,6 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
         tool_choice: convertOpenAIResponsesToolChoice(bodyParams.tool_choice),
         text: Object.keys(text).length ? text : undefined,
         reasoning: Object.keys(reasoning).length ? reasoning : undefined,
-        search_parameters: bodyParams.search_parameters,
         prompt_cache_key: bodyParams.prompt_cache_key,
         logprobs: bodyParams.logprobs,
         top_logprobs: bodyParams.top_logprobs,
@@ -2603,7 +2602,9 @@ async function sendXaiRequest(request, response) {
             bodyParams['reasoning_effort'] = request.body.reasoning_effort;
         }
 
-        if (request.body.enable_web_search) {
+        if (request.body.enable_web_search && useXAIResponsesApi) {
+            bodyParams['tools'] = [{ type: 'web_search' }, ...(bodyParams['tools'] || [])];
+        } else if (request.body.enable_web_search) {
             bodyParams['search_parameters'] = { mode: 'on' };
         }
 
