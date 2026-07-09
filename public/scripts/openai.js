@@ -4046,7 +4046,7 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.presence_penalty;
             delete generate_data.logit_bias;
             delete generate_data.stop;
-        } else if (!isOpenAIResponses || isOpenAIResponsesNoSamplingModel(model, generate_data.reasoning_effort)) {
+        } else if (!isNativeResponses || isOpenAIResponsesNoSamplingModel(model, generate_data.reasoning_effort)) {
             delete generate_data.temperature;
             delete generate_data.top_p;
             delete generate_data.frequency_penalty;
