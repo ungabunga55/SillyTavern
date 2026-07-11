@@ -229,6 +229,7 @@ const defaultStyles = [
 ];
 
 const placeholderVae = 'Automatic';
+const promptProcessingModes = Object.freeze(['standard', 'minimal', 'off']);
 
 const defaultSettings = {
     source: sources.extras,
@@ -280,7 +281,7 @@ const defaultSettings = {
     snap: false,
     free_extend: false,
     function_tool: false,
-    minimal_prompt_processing: false,
+    prompt_processing: 'standard',
 
     prompts: promptTemplates,
 
@@ -361,6 +362,16 @@ const defaultSettings = {
     google_enhance: true,
     google_duration: 6,
 };
+
+/**
+ * Normalizes a response prompt processing mode.
+ * @param {unknown} value Value to normalize
+ * @returns {string|undefined} A valid processing mode, if provided
+ */
+function getPromptProcessingMode(value) {
+    const normalizedValue = String(value ?? '').trim().toLowerCase();
+    return promptProcessingModes.includes(normalizedValue) ? normalizedValue : undefined;
+}
 
 const writePromptFieldsDebounced = debounce(writePromptFields, debounce_timeout.relaxed);
 const isVideo = (/** @type {string} */ format) => VIDEO_EXTENSIONS.includes(String(format || '').trim().toLowerCase());
@@ -465,6 +476,19 @@ async function loadSettings() {
         Object.assign(extension_settings.sd, defaultSettings);
     }
 
+    // Normalize before filling defaults so a legacy true value still migrates to minimal.
+    const legacyPromptProcessing = extension_settings.sd.minimal_prompt_processing;
+    const normalizedPromptProcessing = getPromptProcessingMode(extension_settings.sd.prompt_processing)
+        ?? (legacyPromptProcessing !== undefined && isTrueBoolean(String(legacyPromptProcessing)) ? 'minimal' : 'standard');
+    const promptProcessingChanged = extension_settings.sd.prompt_processing !== normalizedPromptProcessing
+        || Object.hasOwn(extension_settings.sd, 'minimal_prompt_processing');
+    extension_settings.sd.prompt_processing = normalizedPromptProcessing;
+    delete extension_settings.sd.minimal_prompt_processing;
+
+    if (promptProcessingChanged) {
+        saveSettingsDebounced();
+    }
+
     // Insert missing settings
     for (const [key, value] of Object.entries(defaultSettings)) {
         if (extension_settings.sd[key] === undefined) {
@@ -544,7 +568,7 @@ async function loadSettings() {
     $('#sd_comfy_prompt').val(extension_settings.sd.comfy_prompt);
     $('#sd_comfy_runpod_url').val(extension_settings.sd.comfy_runpod_url);
     $('#sd_snap').prop('checked', extension_settings.sd.snap);
-    $('#sd_minimal_prompt_processing').prop('checked', extension_settings.sd.minimal_prompt_processing);
+    $('#sd_prompt_processing').val(extension_settings.sd.prompt_processing);
     $('#sd_clip_skip').val(extension_settings.sd.clip_skip);
     $('#sd_clip_skip_value').val(extension_settings.sd.clip_skip);
     $('#sd_seed').val(extension_settings.sd.seed);
@@ -667,8 +691,8 @@ function onSnapInput() {
     saveSettingsDebounced();
 }
 
-function onMinimalPromptProcessing() {
-    extension_settings.sd.minimal_prompt_processing = !!$(this).prop('checked');
+function onPromptProcessingSelect() {
+    extension_settings.sd.prompt_processing = getPromptProcessingMode($(this).val()) ?? defaultSettings.prompt_processing;
     saveSettingsDebounced();
 }
 
@@ -2898,7 +2922,11 @@ function processReply(str) {
         return '';
     }
 
-    if (extension_settings.sd.minimal_prompt_processing) {
+    if (extension_settings.sd.prompt_processing === 'off') {
+        return str;
+    }
+
+    if (extension_settings.sd.prompt_processing === 'minimal') {
         // Minimal prompt processing
         // JSON and similar should be preserved
         str = str.normalize('NFD');
@@ -3295,7 +3323,7 @@ async function generatePrompt(quietPrompt) {
     const processedReply = processReply(reply);
     toastr.clear(toast);
 
-    if (!processedReply) {
+    if (!processedReply.trim()) {
         toastr.error('Prompt generation produced no text. Make sure you\'re using a valid instruct template and try again', 'Image Generation');
         throw new Error('Prompt generation failed.');
     }
@@ -5490,17 +5518,10 @@ function applyCommandArguments(args) {
         'denoise': 'denoising_strength',
         '2ndpass': 'hr_second_pass_steps',
         'faces': 'restore_faces',
-        'processing': 'minimal_prompt_processing',
+        'processing': 'prompt_processing',
     };
     const enumHandlers = {
-        'processing': (value) => {
-            if (/standard/gi.test(String(value))) {
-                return false;
-            }
-            if (/minimal/gi.test(String(value))) {
-                return true;
-            }
-        },
+        'processing': getPromptProcessingMode,
     };
 
     for (const [param, setting] of Object.entries(settingMap)) {
@@ -5663,7 +5684,9 @@ export async function init() {
                 enumList: [
                     new SlashCommandEnumValue('standard', 'Standard prompt processing'),
                     new SlashCommandEnumValue('minimal', 'Minimal prompt processing'),
+                    new SlashCommandEnumValue('off', 'No response prompt processing'),
                 ],
+                forceEnum: true,
                 isRequired: false,
                 acceptsMultiple: false,
             }),
@@ -5952,7 +5975,7 @@ export async function init() {
     $('#sd_openai_duration').on('input', onOpenAiDurationSelect);
     $('#sd_multimodal_captioning').on('input', onMultimodalCaptioningInput);
     $('#sd_snap').on('input', onSnapInput);
-    $('#sd_minimal_prompt_processing').on('input', onMinimalPromptProcessing);
+    $('#sd_prompt_processing').on('change', onPromptProcessingSelect);
     $('#sd_clip_skip').on('input', onClipSkipInput);
     $('#sd_seed').on('input', onSeedInput);
     $('#sd_character_prompt_share').on('input', onCharacterPromptShareInput);
