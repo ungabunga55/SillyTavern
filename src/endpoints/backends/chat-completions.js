@@ -57,6 +57,7 @@ import {
     addReasoningContentToToolCalls,
     cachingSystemPromptForOpenRouter,
     addOpenRouterSignatures,
+    supportsClaudeMidConversationSystemMessages,
 } from '../../prompt-converters.js';
 
 import { readSecret, SECRET_KEYS } from '../secrets.js';
@@ -1656,7 +1657,8 @@ async function sendClaudeRequest(request, response) {
         const betaHeaders = [];
         const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.use_sysprompt);
-        const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
+        const useMidConversationSystemMessages = supportsClaudeMidConversationSystemMessages(request.body.model);
+        const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request), useMidConversationSystemMessages);
         const useThinking = isClaudeThinkingModel(request.body.model);
         const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4|sonnet-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model) && Boolean(request.body.enable_web_search);
         const isLimitedSampling = isClaudeLimitedSamplingModel(request.body.model);

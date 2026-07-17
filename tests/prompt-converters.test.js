@@ -832,6 +832,16 @@ describe('convertClaudePrompt', () => {
 describe('convertClaudeMessages', () => {
     const names = makeNames('Bot', 'User');
 
+    test.each([
+        ['claude-fable-5', true],
+        ['claude-mythos-5-20260701', true],
+        ['claude-opus-4-8', true],
+        ['claude-sonnet-5', false],
+        ['claude-opus-4-7', false],
+    ])('detects mid-conversation system support for %s', (model, expected) => {
+        expect(mod.supportsClaudeMidConversationSystemMessages(model)).toBe(expected);
+    });
+
     test('extracts leading system messages when useSysPrompt is true', () => {
         const messages = [
             { role: 'system', content: 'System instruction' },
@@ -854,14 +864,45 @@ describe('convertClaudeMessages', () => {
 
     test('converts system messages to user role after extraction', () => {
         const messages = [
+            { role: 'system', content: 'Initial system' },
             { role: 'user', content: 'Hi' },
             { role: 'system', content: 'Mid-prompt system' },
             { role: 'assistant', content: 'Reply' },
         ];
-        const result = mod.convertClaudeMessages(messages, '', false, false, names);
-        // system messages should become user
+        const result = mod.convertClaudeMessages(messages, '', true, false, names);
+        expect(result.systemPrompt).toEqual([{ type: 'text', text: 'Initial system' }]);
         const roles = result.messages.map(m => m.role);
         expect(roles).not.toContain('system');
+    });
+
+    test('preserves mid-conversation system messages for supported models', () => {
+        const messages = [
+            { role: 'system', content: 'Initial system' },
+            { role: 'user', content: 'Hi' },
+            { role: 'system', content: 'New system instruction' },
+            { role: 'assistant', content: 'Reply' },
+        ];
+        const result = mod.convertClaudeMessages(messages, '', true, false, names, true);
+        expect(result.systemPrompt).toEqual([{ type: 'text', text: 'Initial system' }]);
+        expect(result.messages).toEqual([
+            { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
+            { role: 'system', content: [{ type: 'text', text: 'New system instruction' }] },
+            { role: 'assistant', content: [{ type: 'text', text: 'Reply' }] },
+        ]);
+    });
+
+    test('flattens mid-conversation system messages when the system prompt is disabled', () => {
+        const messages = [
+            { role: 'user', content: 'Hi' },
+            { role: 'system', content: 'New system instruction' },
+            { role: 'assistant', content: 'Reply' },
+        ];
+        const result = mod.convertClaudeMessages(messages, '', false, false, names, true);
+        expect(result.messages.map(message => message.role)).toEqual(['user', 'assistant']);
+        expect(result.messages[0].content).toEqual([
+            { type: 'text', text: 'Hi' },
+            { type: 'text', text: 'New system instruction' },
+        ]);
     });
 
     test('merges consecutive same-role messages', () => {

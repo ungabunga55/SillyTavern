@@ -34,6 +34,8 @@ const GEMINI_MEDIA_RESOLUTION = {
 
 const enableThoughtSignatures = !!getConfigValue('gemini.thoughtSignatures', true, 'boolean');
 
+const CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX = /^claude-(?:fable-5|mythos-5|opus-4-8)(?:$|-)/;
+
 /**
  * @typedef {object} PromptNames
  * @property {string} charName Character name
@@ -56,6 +58,15 @@ export function getPromptNames(request) {
             return this.groupNames.some(name => message.startsWith(`${name}: `));
         },
     };
+}
+
+/**
+ * Checks if a Claude model supports system messages in the messages array.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether mid-conversation system messages are supported
+ */
+export function supportsClaudeMidConversationSystemMessages(model) {
+    return CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX.test(String(model || '').toLowerCase().trim());
 }
 
 /**
@@ -193,9 +204,10 @@ export function convertClaudePrompt(messages, addAssistantPostfix, addAssistantP
  * @param {boolean}  useSysPrompt See if we want to use a system prompt
  * @param {boolean}  useTools See if we want to use tools
  * @param {PromptNames} names Prompt names
+ * @param {boolean} useMidConversationSystemMessages Preserve system messages after the leading system prompt
  * @returns {{messages: object[], systemPrompt: object[]}} Prompt for Anthropic
  */
-export function convertClaudeMessages(messages, prefillString, useSysPrompt, useTools, names) {
+export function convertClaudeMessages(messages, prefillString, useSysPrompt, useTools, names, useMidConversationSystemMessages = false) {
     let systemPrompt = [];
     if (useSysPrompt) {
         // Collect all the system messages up until the first instance of a non-system message, and then remove them from the messages array.
@@ -230,7 +242,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         }
     }
 
-    // Now replace all further messages that have the role 'system' with the role 'user'. (or all if we're not using one)
+    // Unsupported models only accept the top-level system prompt, so flatten later system messages into user turns.
     const parse = (str) => typeof str === 'string' ? JSON.parse(str) : str;
     messages.forEach((message) => {
         if (message.role === 'assistant' && message.tool_calls) {
@@ -262,7 +274,9 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
                     message.content = `${names.charName}: ${message.content}`;
                 }
             }
-            message.role = 'user';
+            if (!useSysPrompt || !useMidConversationSystemMessages) {
+                message.role = 'user';
+            }
 
             // Delete name here so it doesn't get added later
             delete message.name;
@@ -342,7 +356,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         });
     }
 
-    // Since the messaging endpoint only supports user assistant roles in turns, we have to merge messages with the same role if they follow eachother
+    // Anthropic combines consecutive messages with the same role into one turn.
     // Also handle multi-modality, holy slop.
     let mergedMessages = [];
     messages.forEach((message) => {
