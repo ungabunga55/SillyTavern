@@ -4018,12 +4018,14 @@ router.post('/generate', async function (request, response) {
             headers = {};
             const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
             const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning);
-            bodyParams = {
-                thinking: {
-                    type: thinkingEnabled ? 'enabled' : 'disabled',
-                    ...(isKimiK3 ? { keep: request.body.moonshot_thinking_keep === 'all' ? 'all' : null } : {}),
-                },
-            };
+            bodyParams = isKimiK3 && thinkingEnabled
+                ? {}
+                : {
+                    thinking: {
+                        type: thinkingEnabled ? 'enabled' : 'disabled',
+                        ...(isKimiK3 ? { keep: request.body.moonshot_thinking_keep === 'all' ? 'all' : null } : {}),
+                    },
+                };
             if (isKimiK3 && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
                 bodyParams.reasoning_effort = request.body.reasoning_effort;
             }
