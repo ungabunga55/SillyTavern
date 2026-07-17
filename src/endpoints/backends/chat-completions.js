@@ -4023,7 +4023,6 @@ router.post('/generate', async function (request, response) {
                 : {
                     thinking: {
                         type: thinkingEnabled ? 'enabled' : 'disabled',
-                        ...(isKimiK3 ? { keep: request.body.moonshot_thinking_keep === 'all' ? 'all' : null } : {}),
                     },
                 };
             if (isKimiK3 && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {

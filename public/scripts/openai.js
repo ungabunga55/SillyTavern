@@ -597,7 +597,6 @@ export const settingsToUpdate = {
     tool_call_recurse_limit: ['#tool_call_recurse_limit', 'tool_call_recurse_limit', false, false],
     show_thoughts: ['#openai_show_thoughts', 'show_thoughts', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
-    moonshot_thinking_keep: ['#moonshot_thinking_keep', 'moonshot_thinking_keep', false, false],
     reasoning_mode: ['#openai_reasoning_mode', 'reasoning_mode', false, false],
     meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
     verbosity: ['#openai_verbosity', 'verbosity', false, false],
@@ -757,7 +756,6 @@ const default_settings = {
     custom_prompt_post_processing: custom_prompt_post_processing_types.NONE,
     show_thoughts: true,
     reasoning_effort: reasoning_effort_types.auto,
-    moonshot_thinking_keep: 'null',
     reasoning_mode: reasoning_mode_types.auto,
     meta_reasoning_summary: 'auto',
     verbosity: verbosity_levels.auto,
@@ -3566,7 +3564,6 @@ export async function createGenerationParameters(settings, model, type, messages
         'group_names': getGroupNames(),
         'include_reasoning': Boolean(settings.show_thoughts),
         'reasoning_effort': getReasoningEffort(settings, model),
-        'moonshot_thinking_keep': settings.moonshot_thinking_keep,
         'reasoning_mode': getOpenAIReasoningMode(settings, model),
         'enable_web_search': Boolean(settings.enable_web_search),
         'request_images': Boolean(settings.request_images),
@@ -8558,11 +8555,6 @@ export function initOpenAI() {
 
     $('#openai_reasoning_effort').on('input', function () {
         oai_settings.reasoning_effort = String($(this).val());
-        saveSettingsDebounced();
-    });
-
-    $('#moonshot_thinking_keep').on('input', function () {
-        oai_settings.moonshot_thinking_keep = String($(this).val());
         saveSettingsDebounced();
     });
 
