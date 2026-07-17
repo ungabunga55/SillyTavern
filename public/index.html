@@ -2191,7 +2191,7 @@
                                             </strong>
                                         </div>
                                     </div>
-                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,meta,xai,makersuite,vertexai,aimlapi,openrouter,requesty,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,nvidia,mistralai,zai,atlascloud,fireworks">
+                                    <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,custom,claude,meta,xai,makersuite,vertexai,aimlapi,openrouter,requesty,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,nvidia,mistralai,zai,atlascloud,fireworks,moonshot">
                                         <div class="flex-container oneline-dropdown" title="Constrains effort on reasoning for reasoning models.&#10;Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response." data-i18n="[title]Constrains effort on reasoning for reasoning models.">
                                             <label for="openai_reasoning_effort">
                                                 <span data-i18n="Reasoning Effort">Reasoning Effort</span>
@@ -2246,6 +2246,9 @@
                                             <div class="toggle-description justifyLeft marginBot5" data-source="fireworks">
                                                 Fireworks maps reasoning to the selected serverless model family where possible. GLM and DeepSeek use the shared toggle and effort control; Kimi K2.7 Code always enables thinking; Qwen and Nemotron use generic Fireworks parameters.
                                             </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="moonshot">
+                                                Kimi K3 currently supports Maximum reasoning effort. Other selected values are passed through for compatibility with future K3 effort levels; Auto uses Moonshot's default. K2 models ignore this setting.
+                                            </div>
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
                                                 Request model reasoning = Off with Reasoning Effort = Minimum disables reasoning entirely on models that support that, but can cause errors with some models.
                                             </strong>
@@ -2260,6 +2263,16 @@
                                                 <span data-i18n="Allocates a portion of the response length for thinking (Flash 2.5/Pro 2.5) (min: 0/128 tokens, low: 10%, medium: 25%, high: 50%, max: 24576/32768 tokens). Auto lets the model decide.">
                                                     Allocates a portion of the response length for thinking (Flash 2.5/Pro 2.5) (min: 0/128 tokens, low: 10%, medium: 25%, high: 50%, max: 24576/32768 tokens). Auto lets the model decide.
                                                 </span>
+                                            </div>
+                                        </div>
+                                        <div class="flex-container oneline-dropdown marginTop10" data-source="moonshot" title="Controls Kimi K3's thinking.keep request field.">
+                                            <label for="moonshot_thinking_keep">Preserved Thinking</label>
+                                            <select id="moonshot_thinking_keep">
+                                                <option value="null">Do not preserve (null)</option>
+                                                <option value="all">Preserve all (all)</option>
+                                            </select>
+                                            <div class="toggle-description justifyLeft marginBot5">
+                                                Sends <code>thinking.keep: null</code> by default or <code>thinking.keep: "all"</code> when enabled. This does not alter SillyTavern's reasoning-history construction.
                                             </div>
                                         </div>
                                     </div>

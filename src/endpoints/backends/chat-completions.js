@@ -147,6 +147,7 @@ const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
 ];
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+const MOONSHOT_KIMI_K3_MODEL_REGEX = /^kimi-k3(?:$|[-.])/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
 let openaiPromptCacheHmacKey;
 let fireworksPromptCacheHmacKey;
@@ -173,6 +174,15 @@ const CLAUDE_LIMITED_SAMPLING_MODEL_REGEXES = [
  */
 function isMoonshotKimiFixedParameterModel(model) {
     return MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX.test(String(model || ''));
+}
+
+/**
+ * Checks if a Moonshot model belongs to the Kimi K3 family.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model uses K3 reasoning effort controls
+ */
+function isMoonshotKimiK3Model(model) {
+    return MOONSHOT_KIMI_K3_MODEL_REGEX.test(String(model || ''));
 }
 
 /**
@@ -4006,12 +4016,17 @@ router.post('/generate', async function (request, response) {
             apiUrl = new URL(request.body.reverse_proxy || API_MOONSHOT).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MOONSHOT, request.body.secret_id);
             headers = {};
+            const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
             const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning);
             bodyParams = {
                 thinking: {
                     type: thinkingEnabled ? 'enabled' : 'disabled',
+                    ...(isKimiK3 ? { keep: request.body.moonshot_thinking_keep === 'all' ? 'all' : null } : {}),
                 },
             };
+            if (isKimiK3 && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
+                bodyParams.reasoning_effort = request.body.reasoning_effort;
+            }
             normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled);
             request.body.json_schema
                 ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)

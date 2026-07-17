@@ -281,6 +281,7 @@ export const tool_reasoning_modes = {
 };
 
 const moonshotKimiFixedParameterModelRegex = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
+const moonshotKimiK3ModelRegex = /^kimi-k3(?:$|[-.])/;
 const claudeLegacySamplingModelRegexes = [
     /^claude-2(?:$|[-.])/,
     /^claude-instant(?:$|-)/,
@@ -333,6 +334,15 @@ function isXaiGrok420OrNewerModel(model) {
  */
 export function isMoonshotKimiFixedParameterModel(model) {
     return moonshotKimiFixedParameterModelRegex.test(String(model || ''));
+}
+
+/**
+ * Checks if a Moonshot model belongs to the Kimi K3 family.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model uses K3 reasoning effort controls
+ */
+function isMoonshotKimiK3Model(model) {
+    return moonshotKimiK3ModelRegex.test(String(model || ''));
 }
 
 /**
@@ -587,6 +597,7 @@ export const settingsToUpdate = {
     tool_call_recurse_limit: ['#tool_call_recurse_limit', 'tool_call_recurse_limit', false, false],
     show_thoughts: ['#openai_show_thoughts', 'show_thoughts', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
+    moonshot_thinking_keep: ['#moonshot_thinking_keep', 'moonshot_thinking_keep', false, false],
     reasoning_mode: ['#openai_reasoning_mode', 'reasoning_mode', false, false],
     meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
     verbosity: ['#openai_verbosity', 'verbosity', false, false],
@@ -746,6 +757,7 @@ const default_settings = {
     custom_prompt_post_processing: custom_prompt_post_processing_types.NONE,
     show_thoughts: true,
     reasoning_effort: reasoning_effort_types.auto,
+    moonshot_thinking_keep: 'null',
     reasoning_mode: reasoning_mode_types.auto,
     meta_reasoning_summary: 'auto',
     verbosity: verbosity_levels.auto,
@@ -3194,6 +3206,7 @@ function getReasoningEffort(settings = null, model = null) {
         chat_completion_sources.DEEPSEEK,
         chat_completion_sources.ZAI,
         chat_completion_sources.NVIDIA,
+        chat_completion_sources.MOONSHOT,
     ];
 
     if (!reasoningEffortSources.includes(settings.chat_completion_source)) {
@@ -3211,6 +3224,15 @@ function getReasoningEffort(settings = null, model = null) {
     }
 
     function resolveReasoningEffort() {
+        if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
+            if (!settings.show_thoughts || !isMoonshotKimiK3Model(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
+                return undefined;
+            }
+
+            // K3 currently accepts max; pass other known/future values through as Moonshot enables them.
+            return settings.reasoning_effort;
+        }
+
         if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
             if (!settings.show_thoughts) {
                 return 'none';
@@ -3544,6 +3566,7 @@ export async function createGenerationParameters(settings, model, type, messages
         'group_names': getGroupNames(),
         'include_reasoning': Boolean(settings.show_thoughts),
         'reasoning_effort': getReasoningEffort(settings, model),
+        'moonshot_thinking_keep': settings.moonshot_thinking_keep,
         'reasoning_mode': getOpenAIReasoningMode(settings, model),
         'enable_web_search': Boolean(settings.enable_web_search),
         'request_images': Boolean(settings.request_images),
@@ -8535,6 +8558,11 @@ export function initOpenAI() {
 
     $('#openai_reasoning_effort').on('input', function () {
         oai_settings.reasoning_effort = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#moonshot_thinking_keep').on('input', function () {
+        oai_settings.moonshot_thinking_keep = String($(this).val());
         saveSettingsDebounced();
     });
 
