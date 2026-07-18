@@ -4033,7 +4033,7 @@ router.post('/generate', async function (request, response) {
             normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled);
             request.body.json_schema
                 ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
-                : addAssistantPrefix(request.body.messages, [], 'partial');
+                : addAssistantPrefix(request.body.messages, [], 'partial', true);
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.COMETAPI) {
             apiUrl = API_COMETAPI;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.COMETAPI, request.body.secret_id);

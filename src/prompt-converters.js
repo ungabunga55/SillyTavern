@@ -74,14 +74,15 @@ export function supportsClaudeMidConversationSystemMessages(model) {
  * @param {any[]} prompt Prompt messages array
  * @param {any[]} tools Array of tool definitions
  * @param {string} property The property to set the prefix on
+ * @param {boolean} [allowWithTools=false] Whether to allow the prefix when tools are present
  * @returns {any[]} Transformed messages array
  */
-export function addAssistantPrefix(prompt, tools, property) {
+export function addAssistantPrefix(prompt, tools, property, allowWithTools = false) {
     if (!prompt.length) {
         return prompt;
     }
     const hasAnyTools = (Array.isArray(tools) && tools.length > 0) || prompt.some(x => x.role === 'tool');
-    if (!hasAnyTools && prompt[prompt.length - 1].role === 'assistant') {
+    if ((allowWithTools || !hasAnyTools) && prompt[prompt.length - 1].role === 'assistant') {
         prompt[prompt.length - 1][property] = true;
     }
     return prompt;

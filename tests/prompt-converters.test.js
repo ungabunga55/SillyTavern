@@ -66,6 +66,16 @@ describe('addAssistantPrefix', () => {
         mod.addAssistantPrefix(prompt, [], 'prefix');
         expect(prompt[2].prefix).toBeUndefined();
     });
+
+    test('sets property with tool history when explicitly allowed', () => {
+        const prompt = [
+            { role: 'user', content: 'hi' },
+            { role: 'tool', content: 'result' },
+            { role: 'assistant', content: 'hello' },
+        ];
+        mod.addAssistantPrefix(prompt, [], 'partial', true);
+        expect(prompt[2].partial).toBe(true);
+    });
 });
 
 
