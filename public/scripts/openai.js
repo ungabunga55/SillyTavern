@@ -3222,6 +3222,17 @@ function getReasoningEffort(settings = null, model = null) {
     }
 
     function resolveReasoningEffort() {
+        if (settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
+            switch (settings.reasoning_effort) {
+                case reasoning_effort_types.auto:
+                    return undefined;
+                case reasoning_effort_types.min:
+                    return settings.show_thoughts ? 'minimal' : 'none';
+                default:
+                    return settings.reasoning_effort;
+            }
+        }
+
         if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
             if (!settings.show_thoughts || !isMoonshotKimiK3Model(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
                 return undefined;
@@ -3354,10 +3365,6 @@ function getReasoningEffort(settings = null, model = null) {
             case reasoning_effort_types.auto:
                 return undefined;
             case reasoning_effort_types.min:
-                if (chat_completion_sources.OPENROUTER === settings.chat_completion_source && !settings.show_thoughts) {
-                    return 'none';
-                }
-
                 if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
                     if (/^gpt-5\.(4|5|6)/.test(model)) {
                         return 'none';

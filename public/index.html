@@ -2206,7 +2206,7 @@
                                                 <option data-i18n="openai_reasoning_effort_xhigh" value="xhigh">Extra High</option>
                                                 <option data-i18n="openai_reasoning_effort_maximum" value="max">Maximum</option>
                                             </select>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,custom,aimlapi,openrouter,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,custom,aimlapi,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
                                                 OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="xai" data-i18n="xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.">
@@ -2250,7 +2250,7 @@
                                                 Kimi K3 currently supports Maximum reasoning effort. Other selected values are passed through for compatibility with future K3 effort levels; Auto uses Moonshot's default. K2 models ignore this setting.
                                             </div>
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
-                                                Request model reasoning = Off with Reasoning Effort = Minimum disables reasoning entirely on models that support that, but can cause errors with some models.
+                                                OpenRouter receives Extra High as <code>xhigh</code> and Maximum as <code>max</code> for every model. Minimum is sent as <code>minimal</code> when reasoning is requested, or <code>none</code> when it is disabled. Auto does not send an effort level.
                                             </strong>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="claude" data-i18n="Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto does not request optional thinking.">
                                                 Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto does not request optional thinking.
