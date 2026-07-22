@@ -6251,6 +6251,7 @@ function getModelOptions(quiet) {
         { id: 'llamacpp_model', api: 'textgenerationwebui', type: textgen_types.LLAMACPP },
         { id: 'featherless_model', api: 'textgenerationwebui', type: textgen_types.FEATHERLESS },
         { id: 'model_openai_select', api: 'openai', type: chat_completion_sources.OPENAI },
+        { id: 'model_agentrouter_select', api: 'openai', type: chat_completion_sources.AGENTROUTER },
         { id: 'model_claude_select', api: 'openai', type: chat_completion_sources.CLAUDE },
         { id: 'model_openrouter_select', api: 'openai', type: chat_completion_sources.OPENROUTER },
         { id: 'model_requesty_select', api: 'openai', type: chat_completion_sources.REQUESTY },

@@ -8,6 +8,7 @@ import fetch from 'node-fetch';
 import urlJoin from 'url-join';
 
 import {
+    AGENTROUTER_HEADERS,
     AIMLAPI_HEADERS,
     AZURE_OPENAI_KEYS,
     CHAT_COMPLETION_SOURCES,
@@ -74,6 +75,7 @@ import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
+const API_AGENTROUTER = 'https://agentrouter.org/v1';
 const API_CLAUDE = 'https://api.anthropic.com/v1';
 const API_MISTRAL = 'https://api.mistral.ai/v1';
 const API_COHERE_V1 = 'https://api.cohere.ai/v1';
@@ -3201,6 +3203,10 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = new URL(request.body.reverse_proxy || API_OPENAI).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.OPENAI, request.body.secret_id);
             headers = {};
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.AGENTROUTER) {
+            apiUrl = API_AGENTROUTER;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.AGENTROUTER, request.body.secret_id);
+            headers = { ...AGENTROUTER_HEADERS };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
@@ -3719,6 +3725,12 @@ router.post('/generate', async function (request, response) {
             }
 
             embedOpenRouterMedia(request.body.messages, { audio: true, video: false });
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.AGENTROUTER) {
+            apiUrl = API_AGENTROUTER;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.AGENTROUTER, request.body.secret_id);
+            headers = { ...AGENTROUTER_HEADERS };
+            bodyParams = {};
+            embedOpenRouterMedia(request.body.messages, { audio: true, video: false });
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
@@ -4102,7 +4114,7 @@ router.post('/generate', async function (request, response) {
         }
 
         // Some OpenAI-compatible providers support reasoning effort.
-        if (!useOpenAIResponsesApi && !useMetaResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI, CHAT_COMPLETION_SOURCES.REQUESTY].includes(request.body.chat_completion_source)) {
+        if (!useOpenAIResponsesApi && !useMetaResponsesApi && request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI, CHAT_COMPLETION_SOURCES.AGENTROUTER, CHAT_COMPLETION_SOURCES.REQUESTY].includes(request.body.chat_completion_source)) {
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
                 bodyParams['reasoning_effort'] = request.body.reasoning_effort;
             }

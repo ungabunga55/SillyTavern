@@ -186,6 +186,7 @@ export const VERTEX_SAFETY = [
 
 export const CHAT_COMPLETION_SOURCES = {
     OPENAI: 'openai',
+    AGENTROUTER: 'agentrouter',
     CLAUDE: 'claude',
     OPENROUTER: 'openrouter',
     AI21: 'ai21',
@@ -387,6 +388,12 @@ export function getOpenRouterHeaders(settings = {}) {
 export const REQUESTY_HEADERS = {
     'HTTP-Referer': 'https://sillytavern.app',
     'X-Title': 'SillyTavern',
+};
+
+export const AGENTROUTER_HEADERS = {
+    'User-Agent': 'codex_cli_rs/0.101.0',
+    'Originator': 'codex_cli_rs',
+    'Accept-Encoding': 'identity',
 };
 
 export const AIMLAPI_HEADERS = {

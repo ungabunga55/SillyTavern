@@ -184,6 +184,7 @@ export let model_list = [];
 
 export const chat_completion_sources = {
     OPENAI: 'openai',
+    AGENTROUTER: 'agentrouter',
     CLAUDE: 'claude',
     OPENROUTER: 'openrouter',
     AI21: 'ai21',
@@ -511,6 +512,7 @@ export const settingsToUpdate = {
     xai_api_type: ['#xai_api_type', 'xai_api_type', false, false],
     xai_prompt_caching: ['#xai_prompt_caching', 'xai_prompt_caching', true, true],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
+    agentrouter_model: ['#model_agentrouter_select', 'agentrouter_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
     openrouter_site_url: ['#openrouter_site_url', 'openrouter_site_url', false, true],
@@ -679,6 +681,7 @@ const default_settings = {
     openai_prompt_caching: false,
     xai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_model: 'gpt-4-turbo',
+    agentrouter_model: 'gpt-5.5',
     claude_model: 'claude-sonnet-4-5',
     google_model: 'gemini-2.5-pro',
     vertexai_model: 'gemini-2.5-pro',
@@ -1972,6 +1975,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.claude_model;
         case chat_completion_sources.OPENAI:
             return settings.openai_model;
+        case chat_completion_sources.AGENTROUTER:
+            return settings.agentrouter_model;
         case chat_completion_sources.MAKERSUITE:
             return settings.google_model;
         case chat_completion_sources.VERTEXAI:
@@ -2378,6 +2383,20 @@ function saveModelList(data) {
         }
 
         $('#model_requesty_select').val(oai_settings.requesty_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.AGENTROUTER) {
+        $('#model_agentrouter_select').empty();
+        model_list.forEach((model) => {
+            $('#model_agentrouter_select').append($('<option>', { value: model.id, text: model.id }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.agentrouter_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.agentrouter_model)) {
+            oai_settings.agentrouter_model = model_list[0].id;
+        }
+
+        $('#model_agentrouter_select').val(oai_settings.agentrouter_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.OPENAI) {
@@ -3188,6 +3207,7 @@ function getReasoningEffort(settings = null, model = null) {
     // These sources expect the effort as string.
     const reasoningEffortSources = [
         chat_completion_sources.OPENAI,
+        chat_completion_sources.AGENTROUTER,
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.CUSTOM,
         chat_completion_sources.XAI,
@@ -3461,6 +3481,7 @@ export async function createGenerationParameters(settings, model, type, messages
     // "OpenAI-like" sources
     const gptSources = [
         chat_completion_sources.OPENAI,
+        chat_completion_sources.AGENTROUTER,
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.OPENROUTER,
     ];
@@ -4380,7 +4401,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -6709,6 +6730,16 @@ async function onModelChange() {
         oai_settings.openai_model = value;
     }
 
+    if ($(this).is('#model_agentrouter_select')) {
+        if (!value) {
+            console.debug('Null AgentRouter model selected. Ignoring.');
+            return;
+        }
+
+        console.log('AgentRouter model changed to', value);
+        oai_settings.agentrouter_model = value;
+    }
+
     if ($(this).is('#model_openrouter_select')) {
         if (!value || !hasModelsLoaded) {
             console.debug('Null OR model selected. Ignoring.');
@@ -7339,6 +7370,7 @@ async function onConnectButtonClick(e) {
     /** @type {Object.<string, {key: string, selector: string, proxy?: boolean, keyless?: boolean}>} */
     const apiSourceConfig = {
         [chat_completion_sources.OPENROUTER]: { key: SECRET_KEYS.OPENROUTER, selector: '#api_key_openrouter', proxy: false },
+        [chat_completion_sources.AGENTROUTER]: { key: SECRET_KEYS.AGENTROUTER, selector: '#api_key_agentrouter', proxy: false },
         [chat_completion_sources.REQUESTY]: { key: SECRET_KEYS.REQUESTY, selector: '#api_key_requesty', proxy: false },
         [chat_completion_sources.MAKERSUITE]: { key: SECRET_KEYS.MAKERSUITE, selector: '#api_key_makersuite', proxy: true },
         [chat_completion_sources.CLAUDE]: { key: SECRET_KEYS.CLAUDE, selector: '#api_key_claude', proxy: true },
@@ -7419,6 +7451,8 @@ function toggleChatCompletionForms() {
         onVertexAIAuthModeChange.call($('#vertexai_auth_mode')[0]);
     } else if (oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER) {
         $('#model_openrouter_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.AGENTROUTER) {
+        $('#model_agentrouter_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.REQUESTY) {
         $('#model_requesty_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.AI21) {
@@ -7660,6 +7694,8 @@ export function isImageInliningSupported() {
             const requestyModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.requesty_model);
             return Boolean(requestyModel?.supports_vision) || visionSupportedModels.some(model => String(oai_settings.requesty_model || '').includes(model));
         }
+        case chat_completion_sources.AGENTROUTER:
+            return visionSupportedModels.some(model => String(oai_settings.agentrouter_model || '').includes(model));
         case chat_completion_sources.CUSTOM:
             return true;
         case chat_completion_sources.MISTRALAI:
@@ -8781,6 +8817,7 @@ export function initOpenAI() {
     $('#vertexai_validate_service_account').on('click', onVertexAIValidateServiceAccount);
     $('#vertexai_clear_service_account').on('click', onVertexAIClearServiceAccount);
     $('#model_openrouter_select').on('change', onModelChange);
+    $('#model_agentrouter_select').on('change', onModelChange);
     $('#model_requesty_select').on('change', onModelChange);
     $('#model_ai21_select').on('change', onModelChange);
     $('#model_mistralai_select').on('change', onModelChange);
