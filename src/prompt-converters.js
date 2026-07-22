@@ -1188,6 +1188,26 @@ export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, 
 }
 
 /**
+ * Checks whether a Gemini model rejects legacy sampling parameters.
+ * @param {string} model Model name
+ * @returns {boolean} Whether temperature, topP, and topK must be omitted
+ */
+export function isGeminiNoSamplingModel(model) {
+    const match = /^gemini-(\d+)(?:\.(\d+))?-(.+)$/.exec(String(model || '').toLowerCase());
+    if (!match) {
+        return false;
+    }
+
+    const major = Number(match[1]);
+    const minor = Number(match[2] || 0);
+    const family = match[3];
+
+    return major > 3
+        || (major === 3 && minor >= 6)
+        || (major === 3 && minor === 5 && family.startsWith('flash-lite'));
+}
+
+/**
  * Calculate the Google budget tokens for a given reasoning effort.
  * @param {number} maxTokens Maximum tokens
  * @param {string} reasoningEffort Reasoning effort

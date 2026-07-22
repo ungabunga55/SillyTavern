@@ -243,6 +243,28 @@ describe('calculateGoogleBudgetTokens', () => {
     });
 });
 
+describe('isGeminiNoSamplingModel', () => {
+    test.each([
+        'gemini-3.6-flash',
+        'gemini-3.6-flash-preview',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash-lite-preview',
+        'gemini-3.7-pro',
+        'gemini-4-pro',
+    ])('omits sampling for %s', (model) => {
+        expect(mod.isGeminiNoSamplingModel(model)).toBe(true);
+    });
+
+    test.each([
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite-preview',
+        'gemini-2.5-flash-lite',
+        'gemma-3-27b-it',
+    ])('keeps sampling for %s', (model) => {
+        expect(mod.isGeminiNoSamplingModel(model)).toBe(false);
+    });
+});
+
 
 describe('addReasoningContentToToolCalls', () => {
     test('adds reasoning_content to messages with tool_calls', () => {

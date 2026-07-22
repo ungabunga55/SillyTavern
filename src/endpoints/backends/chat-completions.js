@@ -51,6 +51,7 @@ import {
     getPromptNames,
     calculateClaudeBudgetTokens,
     calculateGoogleBudgetTokens,
+    isGeminiNoSamplingModel,
     postProcessPrompt,
     PROMPT_PROCESSING_TYPE,
     addAssistantPrefix,
@@ -1905,14 +1906,15 @@ async function sendMakerSuiteRequest(request, response) {
 
     const responseMimeType = request.body.responseMimeType ?? (request.body.json_schema ? 'application/json' : undefined);
     const responseSchema = request.body.responseSchema ?? (request.body.json_schema ? request.body.json_schema.value : undefined);
+    const omitSampling = isGeminiNoSamplingModel(model);
 
     const generationConfig = {
         stopSequences: request.body.stop,
-        candidateCount: 1,
+        candidateCount: omitSampling ? undefined : 1,
         maxOutputTokens: request.body.max_tokens,
-        temperature: request.body.temperature,
-        topP: request.body.top_p,
-        topK: request.body.top_k || undefined,
+        temperature: omitSampling ? undefined : request.body.temperature,
+        topP: omitSampling ? undefined : request.body.top_p,
+        topK: omitSampling ? undefined : request.body.top_k || undefined,
         responseMimeType: responseMimeType,
         responseSchema: responseSchema,
         seed: request.body.seed,
