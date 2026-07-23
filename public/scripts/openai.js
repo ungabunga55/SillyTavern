@@ -371,7 +371,7 @@ export function isMoonshotKimiAlwaysOnThinkingModel(model) {
  * @returns {boolean} True if thinking output should be preserved
  */
 export function isMoonshotKimiThinkingEnabledModel(model, includeReasoning) {
-    return isMoonshotKimiAlwaysOnThinkingModel(model) || (isMoonshotKimiFixedParameterModel(model) && includeReasoning);
+    return isMoonshotKimiAlwaysOnThinkingModel(model) || ((isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3Model(model)) && includeReasoning);
 }
 
 /**
