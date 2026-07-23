@@ -2191,6 +2191,23 @@
                                             </strong>
                                         </div>
                                     </div>
+                                    <div class="range-block" data-source="moonshot">
+                                        <label for="moonshot_preserved_thinking" class="checkbox_label widthFreeExpand">
+                                            <input id="moonshot_preserved_thinking" type="checkbox" />
+                                            <span data-i18n="Send preserved thinking">Send preserved thinking</span>
+                                        </label>
+                                        <div class="flex-container oneline-dropdown marginTop10">
+                                            <label for="moonshot_preserved_thinking_count" data-i18n="Recent thinking messages">
+                                                Recent thinking messages
+                                            </label>
+                                            <input id="moonshot_preserved_thinking_count" class="text_pole widthUnset" type="number" min="1" max="1000" step="1" />
+                                        </div>
+                                        <div class="toggle-description justifyLeft marginTop5">
+                                            <span data-i18n="Sends reasoning from the specified number of most recent assistant turns in the message history.">
+                                                Sends reasoning from the specified number of most recent assistant turns in the message history.
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,agentrouter,custom,claude,meta,xai,makersuite,vertexai,aimlapi,openrouter,requesty,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,nvidia,mistralai,zai,atlascloud,fireworks,moonshot">
                                         <div class="flex-container oneline-dropdown" title="Constrains effort on reasoning for reasoning models.&#10;Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response." data-i18n="[title]Constrains effort on reasoning for reasoning models.">
                                             <label for="openai_reasoning_effort">

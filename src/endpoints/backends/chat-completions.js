@@ -1484,22 +1484,24 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
  * Moves SillyTavern's internal reasoning field to Kimi's reasoning_content field.
  * @param {object[]} messages Prompt messages
  * @param {boolean} thinkingEnabled Whether the request uses Kimi thinking mode
+ * @param {boolean} preservedThinking Whether assistant reasoning history should be retained
  * @returns {void}
  */
-function normalizeMoonshotReasoningContent(messages, thinkingEnabled) {
+function normalizeMoonshotReasoningContent(messages, thinkingEnabled, preservedThinking) {
     if (!Array.isArray(messages)) {
         return;
     }
 
     for (const message of messages) {
         const hasToolCalls = Array.isArray(message.tool_calls);
-        if (hasToolCalls && typeof message.reasoning === 'string') {
+        const hasReasoning = typeof message.reasoning === 'string' && message.reasoning.length > 0;
+        const shouldIncludeReasoning = thinkingEnabled && (hasToolCalls || (preservedThinking && message.role === 'assistant' && hasReasoning));
+        if (shouldIncludeReasoning && hasReasoning) {
             message.reasoning_content = message.reasoning;
-            delete message.reasoning;
         }
+        delete message.reasoning;
 
-        if (!hasToolCalls) {
-            delete message.reasoning;
+        if (!shouldIncludeReasoning) {
             delete message.reasoning_content;
             continue;
         }
@@ -4034,6 +4036,7 @@ router.post('/generate', async function (request, response) {
             headers = {};
             const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
             const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning);
+            const preservedThinking = thinkingEnabled && Boolean(request.body.moonshot_preserved_thinking);
             bodyParams = isKimiK3 && thinkingEnabled
                 ? {}
                 : {
@@ -4044,7 +4047,7 @@ router.post('/generate', async function (request, response) {
             if (isKimiK3 && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
                 bodyParams.reasoning_effort = request.body.reasoning_effort;
             }
-            normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled);
+            normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
             request.body.json_schema
                 ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
                 : addAssistantPrefix(request.body.messages, [], 'partial', true);

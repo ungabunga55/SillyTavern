@@ -524,6 +524,8 @@ export const settingsToUpdate = {
     openrouter_allow_fallbacks: ['#openrouter_allow_fallbacks', 'openrouter_allow_fallbacks', true, true],
     openrouter_middleout: ['#openrouter_middleout', 'openrouter_middleout', false, true],
     tool_reasoning_mode: ['#tool_reasoning_mode', 'tool_reasoning_mode', false, false],
+    moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
+    moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
     ai21_model: ['#model_ai21_select', 'ai21_model', false, true],
     mistralai_model: ['#model_mistralai_select', 'mistralai_model', false, true],
     cohere_model: ['#model_cohere_select', 'cohere_model', false, true],
@@ -736,6 +738,8 @@ const default_settings = {
     openrouter_allow_fallbacks: true,
     openrouter_middleout: openrouter_middleout_types.ON,
     tool_reasoning_mode: tool_reasoning_modes.DISABLED,
+    moonshot_preserved_thinking: false,
+    moonshot_preserved_thinking_count: 3,
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
     max_context_unlocked: false,
@@ -1197,6 +1201,25 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const includeSignature = isReasoningSignatureSupported();
     const isMoonshotKimiThinkingEnabled = oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT
         && isMoonshotKimiThinkingEnabledModel(oai_settings.moonshot_model, oai_settings.show_thoughts);
+    const preserveMoonshotThinking = isMoonshotKimiThinkingEnabled && oai_settings.moonshot_preserved_thinking;
+    const preservedThinkingPrompts = new Set();
+    if (preserveMoonshotThinking) {
+        let remaining = getMoonshotPreservedThinkingCount();
+        for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
+            const candidate = messages[idx];
+            if (candidate?.role !== 'assistant') {
+                continue;
+            }
+
+            const reasoning = String(candidate.reasoning
+                || candidate.invocations?.find(invocation => typeof invocation?.reasoning === 'string' && invocation.reasoning.length > 0)?.reasoning
+                || '');
+            if (reasoning.trim()) {
+                preservedThinkingPrompts.add(candidate);
+                remaining--;
+            }
+        }
+    }
     const isToolReasoningProvider = isMoonshotKimiThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     let toolReasoningMode = tool_reasoning_modes.DISABLED;
     if (isMoonshotKimiThinkingEnabled) {
@@ -1204,7 +1227,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     } else if (isToolReasoningProvider) {
         toolReasoningMode = getEffectiveToolReasoningMode();
     }
-    const includeToolReasoning = toolReasoningMode !== tool_reasoning_modes.DISABLED;
+    const includeToolReasoning = preserveMoonshotThinking || toolReasoningMode !== tool_reasoning_modes.DISABLED;
     const lastUserIdx = messages.findLastIndex(x => x.role === 'user');
 
     // Insert chat messages as long as there is budget available
@@ -1258,8 +1281,9 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
 
         if (canUseTools && Array.isArray(chatPrompt.invocations)) {
             const promptIdx = messages.indexOf(chatPrompt);
-            const reasoningIsEligible = toolReasoningMode !== tool_reasoning_modes.DISABLED
-                && promptIdx > lastUserIdx;
+            const reasoningIsEligible = preserveMoonshotThinking
+                ? preservedThinkingPrompts.has(chatPrompt)
+                : toolReasoningMode !== tool_reasoning_modes.DISABLED && promptIdx > lastUserIdx;
             let previousAssistantReasoning = '';
             if (reasoningIsEligible) {
                 if (toolReasoningMode === tool_reasoning_modes.ACTIVE_CHAIN) {
@@ -1328,6 +1352,10 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
 
         if (includeSignature && chatPrompt.signature) {
             chatMessage.signature = chatPrompt.signature;
+        }
+
+        if (preservedThinkingPrompts.has(chatPrompt) && chatPrompt.reasoning) {
+            await chatMessage.setReasoning(chatPrompt.reasoning);
         }
 
         if (chatCompletion.canAfford(chatMessage)) {
@@ -4043,8 +4071,9 @@ export async function createGenerationParameters(settings, model, type, messages
 
     // https://platform.moonshot.ai/docs/api/chat#public-service-address
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
+        generate_data.moonshot_preserved_thinking = Boolean(settings.moonshot_preserved_thinking);
         // Kimi K2.5+ models use fixed sampler values; sending modified values is rejected.
-        if (isMoonshotKimiFixedParameterModel(model)) {
+        if (isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3Model(model)) {
             delete generate_data.temperature;
             delete generate_data.top_p;
             delete generate_data.frequency_penalty;
@@ -4752,6 +4781,18 @@ class Message {
             tool_calls: JSON.stringify(this.tool_calls),
             ...(this.reasoning ? { reasoning: this.reasoning } : {}),
         });
+    }
+
+    /**
+     * Attach preserved reasoning and include it in prompt budgeting.
+     * @param {string} reasoning Reasoning text to send with the message
+     * @returns {Promise<void>}
+     */
+    async setReasoning(reasoning) {
+        this.reasoning = String(reasoning || '');
+        if (this.reasoning) {
+            this.tokens += await tokenHandler.countAsync({ role: this.role, content: this.reasoning });
+        }
     }
 
     /**
@@ -5571,6 +5612,7 @@ function loadOpenAISettings(data, settings) {
     setNamesBehaviorControls();
     setContinuePostfixControls();
     setToolReasoningControls();
+    setMoonshotPreservedThinkingControls();
     ToolManager.RECURSE_LIMIT = oai_settings.tool_call_recurse_limit;
 
     $('#openrouter_providers_chat').trigger('change');
@@ -5644,6 +5686,18 @@ function setToolReasoningControls() {
     $('#openai_reasoning_mode').prop('disabled', !supportsReasoningMode);
     $('#openai_prompt_caching').prop('disabled', !isOpenAIResponses);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
+}
+
+function getMoonshotPreservedThinkingCount(settings = oai_settings) {
+    const count = Math.trunc(Number(settings.moonshot_preserved_thinking_count));
+    return Number.isFinite(count) && count > 0 ? Math.min(count, 1000) : default_settings.moonshot_preserved_thinking_count;
+}
+
+function setMoonshotPreservedThinkingControls() {
+    oai_settings.moonshot_preserved_thinking_count = getMoonshotPreservedThinkingCount();
+    $('#moonshot_preserved_thinking_count')
+        .val(oai_settings.moonshot_preserved_thinking_count)
+        .prop('disabled', !oai_settings.moonshot_preserved_thinking);
 }
 
 async function getStatusOpen() {
@@ -8486,6 +8540,27 @@ export function initOpenAI() {
             ...oai_settings,
             tool_reasoning_mode: String($(this).val()),
         });
+        saveSettingsDebounced();
+    });
+
+    $('#moonshot_preserved_thinking').on('input', function () {
+        oai_settings.moonshot_preserved_thinking = !!$(this).prop('checked');
+        setMoonshotPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#moonshot_preserved_thinking_count').on('input', function () {
+        const count = Math.trunc(Number($(this).val()));
+        if (Number.isFinite(count) && count > 0) {
+            oai_settings.moonshot_preserved_thinking_count = Math.min(count, 1000);
+            saveSettingsDebounced();
+        }
+    }).on('change', function () {
+        oai_settings.moonshot_preserved_thinking_count = getMoonshotPreservedThinkingCount({
+            ...oai_settings,
+            moonshot_preserved_thinking_count: $(this).val(),
+        });
+        setMoonshotPreservedThinkingControls();
         saveSettingsDebounced();
     });
 
