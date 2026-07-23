@@ -347,6 +347,15 @@ function isMoonshotKimiK3Model(model) {
 }
 
 /**
+ * Checks if an OpenRouter model belongs to the Kimi K3 family.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model is Kimi K3
+ */
+function isOpenRouterKimiK3Model(model) {
+    return /(?:^|\/)kimi-k3(?:$|[-.:])/i.test(String(model || ''));
+}
+
+/**
  * Checks if a Moonshot Kimi model always has thinking enabled.
  * @param {string} model Model identifier
  * @returns {boolean} True if thinking cannot be disabled
@@ -1203,9 +1212,12 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const includeSignature = isReasoningSignatureSupported();
     const isMoonshotKimiThinkingEnabled = oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT
         && isMoonshotKimiThinkingEnabledModel(oai_settings.moonshot_model, oai_settings.show_thoughts);
-    const preserveMoonshotThinking = isMoonshotKimiThinkingEnabled && oai_settings.moonshot_preserved_thinking;
+    const isOpenRouterKimiK3 = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        && isOpenRouterKimiK3Model(oai_settings.openrouter_model);
+    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking
+        && (isMoonshotKimiThinkingEnabled || isOpenRouterKimiK3);
     const preservedThinkingPrompts = new Set();
-    if (preserveMoonshotThinking) {
+    if (preserveThinkingHistory) {
         let remaining = oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount();
         for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
             const candidate = messages[idx];
@@ -1229,7 +1241,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     } else if (isToolReasoningProvider) {
         toolReasoningMode = getEffectiveToolReasoningMode();
     }
-    const includeToolReasoning = preserveMoonshotThinking || toolReasoningMode !== tool_reasoning_modes.DISABLED;
+    const includeToolReasoning = preserveThinkingHistory || toolReasoningMode !== tool_reasoning_modes.DISABLED;
     const lastUserIdx = messages.findLastIndex(x => x.role === 'user');
 
     // Insert chat messages as long as there is budget available
@@ -1283,7 +1295,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
 
         if (canUseTools && Array.isArray(chatPrompt.invocations)) {
             const promptIdx = messages.indexOf(chatPrompt);
-            const reasoningIsEligible = preserveMoonshotThinking
+            const reasoningIsEligible = preserveThinkingHistory
                 ? preservedThinkingPrompts.has(chatPrompt)
                 : toolReasoningMode !== tool_reasoning_modes.DISABLED && promptIdx > lastUserIdx;
             let previousAssistantReasoning = '';
