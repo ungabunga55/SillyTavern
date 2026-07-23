@@ -2200,11 +2200,17 @@
                                             <label for="moonshot_preserved_thinking_count" data-i18n="Recent thinking messages">
                                                 Recent thinking messages
                                             </label>
-                                            <input id="moonshot_preserved_thinking_count" class="text_pole widthUnset" type="number" min="1" max="1000" step="1" />
+                                            <div class="flex-container">
+                                                <input id="moonshot_preserved_thinking_count" class="text_pole widthUnset" type="number" min="1" max="1000" step="1" />
+                                                <label for="moonshot_preserved_thinking_all" class="checkbox_label widthUnset">
+                                                    <input id="moonshot_preserved_thinking_all" type="checkbox" />
+                                                    <span data-i18n="All">All</span>
+                                                </label>
+                                            </div>
                                         </div>
                                         <div class="toggle-description justifyLeft marginTop5">
-                                            <span data-i18n="Sends reasoning from the specified number of most recent assistant turns in the message history.">
-                                                Sends reasoning from the specified number of most recent assistant turns in the message history.
+                                            <span data-i18n="Sends reasoning from all or the specified number of most recent assistant turns in the message history.">
+                                                Sends reasoning from all or the specified number of most recent assistant turns in the message history.
                                             </span>
                                         </div>
                                     </div>

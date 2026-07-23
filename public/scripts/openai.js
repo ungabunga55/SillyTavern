@@ -525,6 +525,7 @@ export const settingsToUpdate = {
     openrouter_middleout: ['#openrouter_middleout', 'openrouter_middleout', false, true],
     tool_reasoning_mode: ['#tool_reasoning_mode', 'tool_reasoning_mode', false, false],
     moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
+    moonshot_preserved_thinking_all: ['#moonshot_preserved_thinking_all', 'moonshot_preserved_thinking_all', true, false],
     moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
     ai21_model: ['#model_ai21_select', 'ai21_model', false, true],
     mistralai_model: ['#model_mistralai_select', 'mistralai_model', false, true],
@@ -739,6 +740,7 @@ const default_settings = {
     openrouter_middleout: openrouter_middleout_types.ON,
     tool_reasoning_mode: tool_reasoning_modes.DISABLED,
     moonshot_preserved_thinking: false,
+    moonshot_preserved_thinking_all: false,
     moonshot_preserved_thinking_count: 3,
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
@@ -1204,7 +1206,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const preserveMoonshotThinking = isMoonshotKimiThinkingEnabled && oai_settings.moonshot_preserved_thinking;
     const preservedThinkingPrompts = new Set();
     if (preserveMoonshotThinking) {
-        let remaining = getMoonshotPreservedThinkingCount();
+        let remaining = oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount();
         for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
             const candidate = messages[idx];
             if (candidate?.role !== 'assistant') {
@@ -5695,9 +5697,10 @@ function getMoonshotPreservedThinkingCount(settings = oai_settings) {
 
 function setMoonshotPreservedThinkingControls() {
     oai_settings.moonshot_preserved_thinking_count = getMoonshotPreservedThinkingCount();
+    $('#moonshot_preserved_thinking_all').prop('disabled', !oai_settings.moonshot_preserved_thinking);
     $('#moonshot_preserved_thinking_count')
         .val(oai_settings.moonshot_preserved_thinking_count)
-        .prop('disabled', !oai_settings.moonshot_preserved_thinking);
+        .prop('disabled', !oai_settings.moonshot_preserved_thinking || oai_settings.moonshot_preserved_thinking_all);
 }
 
 async function getStatusOpen() {
@@ -8545,6 +8548,12 @@ export function initOpenAI() {
 
     $('#moonshot_preserved_thinking').on('input', function () {
         oai_settings.moonshot_preserved_thinking = !!$(this).prop('checked');
+        setMoonshotPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#moonshot_preserved_thinking_all').on('input', function () {
+        oai_settings.moonshot_preserved_thinking_all = !!$(this).prop('checked');
         setMoonshotPreservedThinkingControls();
         saveSettingsDebounced();
     });
