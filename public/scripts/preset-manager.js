@@ -914,6 +914,20 @@ async function presetCommandCallback(args, name) {
     const presetManager = getPresetManager();
     const allPresets = presetManager.getAllPresets();
     const currentPreset = presetManager.getSelectedPresetName();
+    const apiId = main_api;
+
+    function waitForPresetChange() {
+        return new Promise(resolve => {
+            const timeout = setTimeout(cleanUp, 10000);
+            const onPresetChanged = data => data?.apiId === apiId && cleanUp();
+            function cleanUp() {
+                clearTimeout(timeout);
+                eventSource.removeListener(event_types.PRESET_CHANGED, onPresetChanged);
+                resolve();
+            }
+            eventSource.on(event_types.PRESET_CHANGED, onPresetChanged);
+        });
+    }
 
     if (!presetManager) {
         console.debug(`Preset Manager not found for API: ${main_api}`);
@@ -940,7 +954,9 @@ async function presetCommandCallback(args, name) {
             const presetValue = presetManager.findPreset(exactMatch);
 
             if (presetValue) {
+                const presetChanged = waitForPresetChange();
                 presetManager.selectPreset(presetValue, { reconnect });
+                await presetChanged;
                 reconnect && shouldReconnect && await waitForConnection();
             }
         }
@@ -963,7 +979,9 @@ async function presetCommandCallback(args, name) {
             console.log('Found fuzzy preset match', fuzzyPresetName);
 
             if (currentPreset !== fuzzyPresetName) {
+                const presetChanged = waitForPresetChange();
                 presetManager.selectPreset(fuzzyPresetValue, { reconnect });
+                await presetChanged;
                 reconnect && shouldReconnect && await waitForConnection();
             }
         }

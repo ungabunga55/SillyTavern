@@ -1,6 +1,6 @@
 import { DOMPurify, Fuse, Popper } from '../../../lib.js';
 
-import { activateSendButtons, deactivateSendButtons, event_types, eventSource, main_api, online_status, saveSettingsDebounced } from '../../../script.js';
+import { activateSendButtons, deactivateSendButtons, event_types, eventSource, main_api, online_status, saveSettingsDebounced, setOnlineStatus } from '../../../script.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../extensions.js';
 import { callGenericPopup, Popup, POPUP_RESULT, POPUP_TYPE } from '../../popup.js';
 import { SlashCommand } from '../../slash-commands/SlashCommand.js';
@@ -410,6 +410,9 @@ async function applyConnectionProfile(profile, deferConnection = false) {
         for (const command of commands) {
             if (spinner.isAborted()) {
                 throw new Error('Profile application aborted');
+            }
+            if (deferConnection && command === 'model') {
+                continue;
             }
 
             const argument = profile[command];
@@ -975,8 +978,33 @@ export async function init() {
                 openai: '#api_button_openai',
             }[main_api];
             if (connectButton) {
+                const connectionFinished = new Promise(resolve => {
+                    const timeout = setTimeout(cleanUp, 10000);
+                    const onStatusChanged = status => status !== 'no_connection' && cleanUp();
+                    function cleanUp() {
+                        clearTimeout(timeout);
+                        eventSource.removeListener(event_types.ONLINE_STATUS_CHANGED, onStatusChanged);
+                        resolve();
+                    }
+                    eventSource.on(event_types.ONLINE_STATUS_CHANGED, onStatusChanged);
+                });
+                setOnlineStatus('no_connection');
                 $(connectButton).trigger('click');
+                await connectionFinished;
             }
+            if (requestId !== profileSelectionRequest) {
+                return false;
+            }
+            if (profile.model) {
+                try {
+                    await SlashCommandParser.commands.model.callback(getNamedArguments(), profile.model);
+                } catch (error) {
+                    console.error(`Failed to apply connection profile model: ${profile.model}`, error);
+                }
+            }
+        }
+        if (requestId !== profileSelectionRequest) {
+            return false;
         }
         profileSelectionOperationPromise = Promise.resolve(true);
         await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
@@ -1072,7 +1100,7 @@ export async function init() {
             return;
         }
 
-        await selectConnectionProfile(selectedProfile.value);
+        await selectConnectionProfile(selectedProfile.value, true);
     });
 
     renderQuickSwitcher();
@@ -1085,7 +1113,7 @@ export async function init() {
             console.log('No profile selected');
             return;
         }
-        const profileLoaded = await selectConnectionProfile(profile.id);
+        const profileLoaded = await selectConnectionProfile(profile.id, true);
         if (!profileLoaded) {
             return;
         }
@@ -1314,7 +1342,7 @@ export async function init() {
                 return '';
             }
 
-            const selectionPromise = selectConnectionProfile(profile.id);
+            const selectionPromise = selectConnectionProfile(profile.id, true);
 
             if (shouldAwait) {
                 const profileLoaded = await selectionPromise;
