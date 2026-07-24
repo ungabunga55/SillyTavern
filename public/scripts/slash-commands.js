@@ -273,26 +273,27 @@ export function initDefaultSlashCommands() {
             }
 
             let connectionRequired = false;
+            const autoConnect = !isFalseBoolean(String(args?.connect ?? 'true'));
 
             if (main_api !== apiConfig.selected) {
                 $(`#main_api option[value='${apiConfig.selected || text}']`).prop('selected', true);
-                $('#main_api').trigger('change');
+                $('#main_api').trigger('change', { reconnect: autoConnect });
                 connectionRequired = true;
             }
 
             if (apiConfig.source && oai_settings.chat_completion_source !== apiConfig.source) {
                 $(`#chat_completion_source option[value='${apiConfig.source}']`).prop('selected', true);
-                $('#chat_completion_source').trigger('change');
+                $('#chat_completion_source').trigger('change', { reconnect: autoConnect });
                 connectionRequired = true;
             }
 
             if (apiConfig.type && textgenerationwebui_settings.type !== apiConfig.type) {
                 $(`#textgen_type option[value='${apiConfig.type}']`).prop('selected', true);
-                $('#textgen_type').trigger('change');
+                $('#textgen_type').trigger('change', { reconnect: autoConnect });
                 connectionRequired = true;
             }
 
-            if (connectionRequired && apiConfig.button) {
+            if (autoConnect && connectionRequired && apiConfig.button) {
                 $(apiConfig.button).trigger('click');
             }
 
@@ -300,7 +301,7 @@ export function initDefaultSlashCommands() {
             const toast = quiet ? jQuery() : toastr.info(t`API set to ${text}, trying to connect..`);
 
             try {
-                if (connectionRequired) {
+                if (autoConnect && connectionRequired) {
                     await waitUntilCondition(() => online_status !== 'no_connection', 5000, 100);
                 }
                 console.log('Connection successful');

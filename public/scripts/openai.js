@@ -6277,7 +6277,7 @@ async function onLogitBiasPresetDeleteClick() {
 }
 
 // Load OpenAI preset settings
-function onSettingsPresetChange() {
+function onSettingsPresetChange(_event, data) {
     const presetNameBefore = oai_settings.preset_settings_openai;
 
     const presetName = $('#settings_preset_openai').find(':selected').text();
@@ -6331,7 +6331,7 @@ function onSettingsPresetChange() {
 
         // These cannot be changed via preset if unbound to connection
         if (oai_settings.bind_preset_to_connection) {
-            $('#chat_completion_source').trigger('change');
+            $('#chat_completion_source').trigger('change', { reconnect: data?.reconnect });
             $('#openrouter_providers_chat').trigger('change');
             $('#openrouter_quantizations_chat').trigger('change');
             $('#nanogpt_provider').trigger('change');
@@ -8449,13 +8449,15 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
-    $('#chat_completion_source').on('change', function () {
+    $('#chat_completion_source').on('change', function (_event, data) {
         cancelStatusCheck('Chat Completion source changed');
         model_list = [];
         oai_settings.chat_completion_source = String($(this).find(':selected').val());
         toggleChatCompletionForms();
         saveSettingsDebounced();
-        reconnectOpenAi();
+        if (data?.reconnect !== false) {
+            reconnectOpenAi();
+        }
         forceCharacterEditorTokenize();
         updateFeatureSupportFlags();
         eventSource.emit(event_types.CHATCOMPLETION_SOURCE_CHANGED, oai_settings.chat_completion_source);

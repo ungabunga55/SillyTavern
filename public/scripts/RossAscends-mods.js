@@ -707,7 +707,10 @@ export function initRossMods() {
         RA_autoconnect();
     }
 
-    $('#main_api').on('change', function () {
+    $('#main_api').on('change', function (_event, data) {
+        if (data?.reconnect === false) {
+            return;
+        }
         var PrevAPI = main_api;
         setTimeout(() => RA_autoconnect(PrevAPI), 100);
     });

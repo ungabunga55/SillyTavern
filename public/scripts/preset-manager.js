@@ -39,7 +39,7 @@ import {
     textgenerationwebui_preset_names,
     textgenerationwebui_presets,
 } from './textgen-settings.js';
-import { download, ensurePlainObject, equalsIgnoreCaseAndAccents, getSanitizedFilename, parseJsonFile, waitUntilCondition } from './utils.js';
+import { download, ensurePlainObject, equalsIgnoreCaseAndAccents, getSanitizedFilename, isFalseBoolean, parseJsonFile, waitUntilCondition } from './utils.js';
 
 const presetManagers = {};
 
@@ -407,13 +407,14 @@ class PresetManager {
     /**
      * Selects a preset by option value.
      * @param {string} value Preset option value
+     * @param {object} [eventData] Additional data for the select change handler
      */
-    selectPreset(value) {
+    selectPreset(value, eventData) {
         const option = $(this.select).filter(function () {
             return $(this).val() === value;
         });
         option.prop('selected', true);
-        $(this.select).val(value).trigger('change');
+        $(this.select).val(value).trigger('change', eventData);
     }
 
     /**
@@ -903,12 +904,13 @@ class PresetManager {
 
 /**
  * Selects a preset by name for current API.
- * @param {any} _ Named arguments
+ * @param {object} args Named arguments
  * @param {string} name Unnamed arguments
  * @returns {Promise<string>} Selected or current preset name
  */
-async function presetCommandCallback(_, name) {
+async function presetCommandCallback(args, name) {
     const shouldReconnect = online_status !== 'no_connection';
+    const reconnect = !isFalseBoolean(String(args?.connect ?? 'true'));
     const presetManager = getPresetManager();
     const allPresets = presetManager.getAllPresets();
     const currentPreset = presetManager.getSelectedPresetName();
@@ -938,8 +940,8 @@ async function presetCommandCallback(_, name) {
             const presetValue = presetManager.findPreset(exactMatch);
 
             if (presetValue) {
-                presetManager.selectPreset(presetValue);
-                shouldReconnect && await waitForConnection();
+                presetManager.selectPreset(presetValue, { reconnect });
+                reconnect && shouldReconnect && await waitForConnection();
             }
         }
 
@@ -961,8 +963,8 @@ async function presetCommandCallback(_, name) {
             console.log('Found fuzzy preset match', fuzzyPresetName);
 
             if (currentPreset !== fuzzyPresetName) {
-                presetManager.selectPreset(fuzzyPresetValue);
-                shouldReconnect && await waitForConnection();
+                presetManager.selectPreset(fuzzyPresetValue, { reconnect });
+                reconnect && shouldReconnect && await waitForConnection();
             }
         }
 

@@ -1,4 +1,4 @@
-import { DOMPurify, Fuse } from '../../../lib.js';
+import { DOMPurify, Fuse, Popper } from '../../../lib.js';
 
 import { activateSendButtons, deactivateSendButtons, event_types, eventSource, main_api, online_status, saveSettingsDebounced } from '../../../script.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../extensions.js';
@@ -27,6 +27,7 @@ const EMPTY = '<Empty>';
 const DEFAULT_SETTINGS = {
     profiles: [],
     selectedProfile: null,
+    quickProfileIds: [],
 };
 
 // Commands that can record an empty value into the profile
@@ -319,17 +320,18 @@ async function createConnectionProfile(forceName = null) {
 
 /**
  * Deletes the selected connection profile.
- * @returns {Promise<void>}
+ * @param {() => Promise<void>} [beforeDelete] Callback to run after confirmation and before deletion
+ * @returns {Promise<ConnectionProfile|null>} The deleted profile, or null if no profile was deleted
  */
-async function deleteConnectionProfile() {
+async function deleteConnectionProfile(beforeDelete) {
     const selectedProfile = extension_settings.connectionManager.selectedProfile;
     if (!selectedProfile) {
-        return;
+        return null;
     }
 
     const index = extension_settings.connectionManager.profiles.findIndex(p => p.id === selectedProfile);
     if (index === -1) {
-        return;
+        return null;
     }
 
     const profile = extension_settings.connectionManager.profiles[index];
@@ -337,14 +339,15 @@ async function deleteConnectionProfile() {
     const confirm = await Popup.show.confirm(t`Are you sure you want to delete the selected profile?`, name);
 
     if (!confirm) {
-        return;
+        return null;
     }
 
+    await beforeDelete?.();
     extension_settings.connectionManager.profiles.splice(index, 1);
     extension_settings.connectionManager.selectedProfile = null;
+    extension_settings.connectionManager.quickProfileIds = extension_settings.connectionManager.quickProfileIds.filter(id => id !== profile.id);
     saveSettingsDebounced();
-
-    await eventSource.emit(event_types.CONNECTION_PROFILE_DELETED, profile);
+    return profile;
 }
 
 /**
@@ -387,9 +390,10 @@ function makeFancyProfile(profile) {
 /**
  * Applies the connection profile.
  * @param {ConnectionProfile} profile Connection profile
+ * @param {boolean} [deferConnection] Suppress intermediate reconnects while applying the profile
  * @returns {Promise<void>}
  */
-async function applyConnectionProfile(profile) {
+async function applyConnectionProfile(profile, deferConnection = false) {
     if (!profile) {
         return;
     }
@@ -402,25 +406,30 @@ async function applyConnectionProfile(profile) {
     const spinner = new ConnectionManagerSpinner();
     spinner.start();
 
-    for (const command of commands) {
-        if (spinner.isAborted()) {
-            throw new Error('Profile application aborted');
-        }
+    try {
+        for (const command of commands) {
+            if (spinner.isAborted()) {
+                throw new Error('Profile application aborted');
+            }
 
-        const argument = profile[command];
-        const allowEmpty = ALLOW_EMPTY.includes(command);
-        if (!argument && !(allowEmpty && argument === '')) {
-            continue;
+            const argument = profile[command];
+            const allowEmpty = ALLOW_EMPTY.includes(command);
+            if (!argument && !(allowEmpty && argument === '')) {
+                continue;
+            }
+            try {
+                const args = getNamedArguments({
+                    ...(allowEmpty ? { force: 'true' } : {}),
+                    ...(deferConnection && ['api', 'api-url', 'preset'].includes(command) ? { connect: 'false' } : {}),
+                });
+                await SlashCommandParser.commands[command].callback(args, argument);
+            } catch (error) {
+                console.error(`Failed to execute command: ${command} ${argument}`, error);
+            }
         }
-        try {
-            const args = getNamedArguments(allowEmpty ? { force: 'true' } : {});
-            await SlashCommandParser.commands[command].callback(args, argument);
-        } catch (error) {
-            console.error(`Failed to execute command: ${command} ${argument}`, error);
-        }
+    } finally {
+        spinner.stop();
     }
-
-    spinner.stop();
 }
 
 /**
@@ -703,6 +712,9 @@ export async function init() {
             extension_settings.connectionManager[key] = DEFAULT_SETTINGS[key];
         }
     }
+    if (!Array.isArray(extension_settings.connectionManager.quickProfileIds)) {
+        extension_settings.connectionManager.quickProfileIds = [];
+    }
 
     const container = document.getElementById('rm_api_block');
     const settings = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
@@ -713,12 +725,344 @@ export async function init() {
     const profiles = document.getElementById('connection_profiles');
     renderConnectionProfiles(profiles);
 
+    const detailsContent = document.getElementById('connection_profile_details_content');
+    const quickProfileToggle = document.getElementById('quick_connection_profile');
+    const quickSwitchButton = document.createElement('div');
+    quickSwitchButton.id = 'connectionProfileQuickSwitchButton';
+    quickSwitchButton.className = 'fa-solid fa-plug interactable';
+    quickSwitchButton.title = t`Quick connection profiles`;
+    quickSwitchButton.setAttribute('data-i18n', '[title]Quick connection profiles');
+    quickSwitchButton.setAttribute('aria-label', t`Quick connection profiles`);
+    quickSwitchButton.setAttribute('aria-haspopup', 'menu');
+    quickSwitchButton.setAttribute('aria-expanded', 'false');
+    quickSwitchButton.setAttribute('aria-controls', 'connectionProfileQuickSwitchMenu');
+    quickSwitchButton.setAttribute('role', 'button');
+
+    const quickSwitchMenu = document.createElement('div');
+    quickSwitchMenu.id = 'connectionProfileQuickSwitchMenu';
+    quickSwitchMenu.className = 'font-family-reset';
+    quickSwitchMenu.hidden = true;
+    quickSwitchMenu.setAttribute('role', 'menu');
+    quickSwitchMenu.setAttribute('aria-label', t`Quick connection profiles`);
+
+    const quickSwitchHeading = document.createElement('div');
+    quickSwitchHeading.className = 'connection-profile-quick-heading';
+    const quickSwitchHeadingIcon = document.createElement('i');
+    quickSwitchHeadingIcon.className = 'fa-solid fa-bolt';
+    const quickSwitchHeadingText = document.createElement('strong');
+    quickSwitchHeadingText.textContent = t`Quick connection profiles`;
+    quickSwitchHeading.append(quickSwitchHeadingIcon, quickSwitchHeadingText);
+
+    const quickSwitchStatus = document.createElement('div');
+    quickSwitchStatus.className = 'connection-profile-quick-status';
+    const quickSwitchList = document.createElement('div');
+    quickSwitchList.className = 'connection-profile-quick-list';
+    quickSwitchMenu.append(quickSwitchHeading, quickSwitchStatus, quickSwitchList);
+    document.body.appendChild(quickSwitchMenu);
+    document.getElementById('leftSendForm').appendChild(quickSwitchButton);
+
+    const quickSwitchPopper = Popper.createPopper(quickSwitchButton, quickSwitchMenu, {
+        placement: 'top-start',
+        modifiers: [
+            { name: 'offset', options: { offset: [0, 8] } },
+            { name: 'preventOverflow', options: { padding: 8 } },
+        ],
+    });
+    let profileSelectionRequest = 0;
+    let profileApplicationPromise = Promise.resolve(true);
+    let profileSelectionOperationPromise = Promise.resolve(true);
+    let profileMutationPromise = Promise.resolve();
+
+    async function runProfileMutation(callback) {
+        const previousMutation = profileMutationPromise;
+        let releaseMutation;
+        profileMutationPromise = new Promise(resolve => {
+            releaseMutation = resolve;
+        });
+        await previousMutation;
+        try {
+            return await callback();
+        } finally {
+            releaseMutation();
+        }
+    }
+
+    async function waitForProfileMutations() {
+        while (true) {
+            const currentMutation = profileMutationPromise;
+            await currentMutation;
+            if (currentMutation === profileMutationPromise) {
+                return;
+            }
+        }
+    }
+
+    async function cancelProfileApplication() {
+        profileSelectionRequest++;
+        ConnectionManagerSpinner.abort();
+        await profileSelectionOperationPromise.catch(() => false);
+        quickSwitchButton.classList.remove('loading');
+    }
+
+    async function waitForProfileApplication() {
+        await profileSelectionOperationPromise.catch(() => false);
+    }
+
+    function setQuickSwitchMenuOpen(open, focusMenu = false) {
+        quickSwitchMenu.hidden = !open;
+        quickSwitchButton.classList.toggle('menu-open', open);
+        quickSwitchButton.setAttribute('aria-expanded', String(open));
+        if (open) {
+            quickSwitchPopper.update();
+            if (focusMenu) {
+                requestAnimationFrame(() => {
+                    const selectedOption = quickSwitchList.querySelector('.connection-profile-quick-option.selected');
+                    const firstOption = quickSwitchList.querySelector('.connection-profile-quick-option');
+                    const option = selectedOption || firstOption;
+                    if (option instanceof HTMLElement) {
+                        option.focus();
+                    }
+                });
+            }
+        }
+    }
+
+    function updateQuickProfileToggle() {
+        const profileId = extension_settings.connectionManager.selectedProfile;
+        const isQuickProfile = profileId && extension_settings.connectionManager.quickProfileIds.includes(profileId);
+        quickProfileToggle.classList.toggle('active', Boolean(isQuickProfile));
+        quickProfileToggle.setAttribute('aria-pressed', String(Boolean(isQuickProfile)));
+        quickProfileToggle.title = isQuickProfile
+            ? t`Remove selected profile from quick switcher`
+            : t`Add selected profile to quick switcher`;
+    }
+
+    function renderQuickSwitcher() {
+        const selectedProfileId = extension_settings.connectionManager.selectedProfile;
+        const selectedProfile = extension_settings.connectionManager.profiles.find(profile => profile.id === selectedProfileId);
+        const quickProfileIds = new Set(extension_settings.connectionManager.quickProfileIds);
+        const quickProfiles = extension_settings.connectionManager.profiles
+            .filter(profile => quickProfileIds.has(profile.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        quickSwitchButton.classList.toggle('profile-selected', Boolean(selectedProfile));
+        quickSwitchButton.title = selectedProfile
+            ? `${t`Quick connection profiles`}: ${selectedProfile.name}`
+            : t`Quick connection profiles`;
+        quickSwitchButton.setAttribute('aria-label', quickSwitchButton.title);
+        quickSwitchStatus.textContent = selectedProfile
+            ? `${t`Active`}: ${selectedProfile.name}`
+            : t`No profile selected`;
+        quickSwitchList.replaceChildren();
+
+        if (quickProfiles.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'connection-profile-quick-empty';
+            emptyState.textContent = t`Star profiles in Connection Settings to add them here.`;
+            quickSwitchList.appendChild(emptyState);
+            updateQuickProfileToggle();
+            return;
+        }
+
+        for (const profile of quickProfiles) {
+            const isSelected = profile.id === selectedProfileId;
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'connection-profile-quick-option';
+            option.classList.toggle('selected', isSelected);
+            option.setAttribute('role', 'menuitemradio');
+            option.setAttribute('aria-checked', String(isSelected));
+            option.dataset.profileId = profile.id;
+
+            const icon = document.createElement('i');
+            icon.className = `fa-solid fa-fw ${isSelected ? 'fa-circle-check' : 'fa-plug'}`;
+            const name = document.createElement('span');
+            name.textContent = profile.name;
+            option.append(icon, name);
+            option.addEventListener('click', async () => {
+                setQuickSwitchMenuOpen(false);
+                quickSwitchButton.focus();
+                if (!isSelected) {
+                    await selectConnectionProfile(profile.id, true);
+                }
+            });
+            quickSwitchList.appendChild(option);
+        }
+
+        updateQuickProfileToggle();
+    }
+
     function toggleProfileSpecificButtons() {
         const profileId = extension_settings.connectionManager.selectedProfile;
-        const profileSpecificButtons = ['update_connection_profile', 'reload_connection_profile', 'delete_connection_profile'];
-        profileSpecificButtons.forEach(id => document.getElementById(id).classList.toggle('disabled', !profileId));
+        const profileSpecificButtons = ['update_connection_profile', 'reload_connection_profile', 'delete_connection_profile', 'quick_connection_profile'];
+        profileSpecificButtons.forEach(id => {
+            const button = document.getElementById(id);
+            button.classList.toggle('disabled', !profileId);
+            button.setAttribute('aria-disabled', String(!profileId));
+        });
+        updateQuickProfileToggle();
     }
     toggleProfileSpecificButtons();
+
+    async function selectConnectionProfileInternal(profileId, autoConnect = false) {
+        const profile = profileId
+            ? extension_settings.connectionManager.profiles.find(item => item.id === profileId)
+            : null;
+        if (profileId && !profile) {
+            console.log(`Profile not found: ${profileId}`);
+            return false;
+        }
+
+        const requestId = ++profileSelectionRequest;
+        const previousApplicationPromise = profileApplicationPromise;
+        ConnectionManagerSpinner.abort();
+        extension_settings.connectionManager.selectedProfile = profileId;
+        profiles.value = profileId;
+        saveSettingsDebounced();
+        await renderDetailsContent(detailsContent);
+        if (requestId !== profileSelectionRequest) {
+            return false;
+        }
+        toggleProfileSpecificButtons();
+        renderQuickSwitcher();
+
+        // None option selected
+        if (!profileId) {
+            await previousApplicationPromise.catch(() => false);
+            if (requestId !== profileSelectionRequest) {
+                return false;
+            }
+            quickSwitchButton.classList.remove('loading');
+            profileSelectionOperationPromise = Promise.resolve(true);
+            await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
+            return true;
+        }
+
+        quickSwitchButton.classList.add('loading');
+        const applicationPromise = (async () => {
+            await previousApplicationPromise.catch(() => false);
+            if (requestId !== profileSelectionRequest) {
+                return false;
+            }
+            await applyConnectionProfile(profile, autoConnect);
+            return true;
+        })();
+        profileApplicationPromise = applicationPromise;
+        try {
+            const applied = await applicationPromise;
+            if (!applied) {
+                return false;
+            }
+        } catch (error) {
+            if (requestId === profileSelectionRequest) {
+                console.error(`Failed to apply connection profile: ${profile.name}`, error);
+            }
+            return false;
+        } finally {
+            if (requestId === profileSelectionRequest) {
+                quickSwitchButton.classList.remove('loading');
+            }
+        }
+
+        if (requestId !== profileSelectionRequest) {
+            return false;
+        }
+        if (autoConnect) {
+            const connectButton = {
+                kobold: '#api_button',
+                novel: '#api_button_novel',
+                textgenerationwebui: '#api_button_textgenerationwebui',
+                openai: '#api_button_openai',
+            }[main_api];
+            if (connectButton) {
+                $(connectButton).trigger('click');
+            }
+        }
+        profileSelectionOperationPromise = Promise.resolve(true);
+        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
+        return true;
+    }
+
+    async function selectConnectionProfile(profileId, autoConnect = false) {
+        await waitForProfileMutations();
+        const selectionOperation = selectConnectionProfileInternal(profileId, autoConnect);
+        profileSelectionOperationPromise = selectionOperation;
+        return selectionOperation;
+    }
+
+    quickSwitchButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setQuickSwitchMenuOpen(quickSwitchMenu.hidden, event.detail === 0);
+    });
+    quickSwitchButton.addEventListener('keydown', event => {
+        if (event.key === ' ') {
+            event.preventDefault();
+            quickSwitchButton.click();
+        } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setQuickSwitchMenuOpen(true, true);
+        }
+    });
+    quickSwitchMenu.addEventListener('click', event => event.stopPropagation());
+    quickSwitchMenu.addEventListener('keydown', event => {
+        if (event.key === 'Tab') {
+            setQuickSwitchMenuOpen(false);
+            quickSwitchButton.focus();
+            return;
+        }
+
+        const options = Array.from(quickSwitchList.querySelectorAll('.connection-profile-quick-option'))
+            .filter(option => option instanceof HTMLElement);
+        if (options.length === 0) {
+            return;
+        }
+        const currentIndex = options.indexOf(document.activeElement);
+        let nextIndex;
+        if (event.key === 'ArrowDown') {
+            nextIndex = (currentIndex + 1) % options.length;
+        } else if (event.key === 'ArrowUp') {
+            nextIndex = (currentIndex - 1 + options.length) % options.length;
+        } else if (event.key === 'Home') {
+            nextIndex = 0;
+        } else if (event.key === 'End') {
+            nextIndex = options.length - 1;
+        } else {
+            return;
+        }
+
+        event.preventDefault();
+        options[nextIndex].focus();
+    });
+    document.body.addEventListener('click', () => setQuickSwitchMenuOpen(false));
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !quickSwitchMenu.hidden) {
+            setQuickSwitchMenuOpen(false);
+            quickSwitchButton.focus();
+        }
+    });
+
+    quickProfileToggle.addEventListener('click', () => {
+        const profileId = extension_settings.connectionManager.selectedProfile;
+        if (!profileId) {
+            return;
+        }
+
+        const quickProfileIds = extension_settings.connectionManager.quickProfileIds;
+        const quickProfileIndex = quickProfileIds.indexOf(profileId);
+        if (quickProfileIndex === -1) {
+            quickProfileIds.push(profileId);
+        } else {
+            quickProfileIds.splice(quickProfileIndex, 1);
+        }
+        saveSettingsDebounced();
+        renderQuickSwitcher();
+    });
+    quickProfileToggle.addEventListener('keydown', event => {
+        if (event.key === ' ') {
+            event.preventDefault();
+            quickProfileToggle.click();
+        }
+    });
 
     profiles.addEventListener('change', async function () {
         const selectedProfile = profiles.selectedOptions[0];
@@ -728,29 +1072,10 @@ export async function init() {
             return;
         }
 
-        const profileId = selectedProfile.value;
-        extension_settings.connectionManager.selectedProfile = profileId;
-        saveSettingsDebounced();
-        await renderDetailsContent(detailsContent);
-
-        toggleProfileSpecificButtons();
-
-        // None option selected
-        if (!profileId) {
-            await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
-            return;
-        }
-
-        const profile = extension_settings.connectionManager.profiles.find(p => p.id === profileId);
-
-        if (!profile) {
-            console.log(`Profile not found: ${profileId}`);
-            return;
-        }
-
-        await applyConnectionProfile(profile);
-        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
+        await selectConnectionProfile(selectedProfile.value);
     });
+
+    renderQuickSwitcher();
 
     const reloadButton = document.getElementById('reload_connection_profile');
     reloadButton.addEventListener('click', async () => {
@@ -760,50 +1085,87 @@ export async function init() {
             console.log('No profile selected');
             return;
         }
-        await applyConnectionProfile(profile);
+        const profileLoaded = await selectConnectionProfile(profile.id);
+        if (!profileLoaded) {
+            return;
+        }
         await renderDetailsContent(detailsContent);
-        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
         toastr.success('Connection profile reloaded', '', { timeOut: 1500 });
     });
 
     const createButton = document.getElementById('create_connection_profile');
     createButton.addEventListener('click', async () => {
-        const profile = await createConnectionProfile();
+        const profile = await runProfileMutation(async () => {
+            await waitForProfileApplication();
+            const profile = await createConnectionProfile();
+            if (!profile) {
+                return null;
+            }
+            extension_settings.connectionManager.profiles.push(profile);
+            extension_settings.connectionManager.selectedProfile = profile.id;
+            saveSettingsDebounced();
+            renderConnectionProfiles(profiles);
+            await renderDetailsContent(detailsContent);
+            toggleProfileSpecificButtons();
+            renderQuickSwitcher();
+            return profile;
+        });
         if (!profile) {
             return;
         }
-        extension_settings.connectionManager.profiles.push(profile);
-        extension_settings.connectionManager.selectedProfile = profile.id;
-        saveSettingsDebounced();
-        renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
         await eventSource.emit(event_types.CONNECTION_PROFILE_CREATED, profile);
-        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
+        if (extension_settings.connectionManager.selectedProfile === profile.id) {
+            await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
+        }
     });
 
     const updateButton = document.getElementById('update_connection_profile');
     updateButton.addEventListener('click', async () => {
-        const selectedProfile = extension_settings.connectionManager.selectedProfile;
-        const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
-        if (!profile) {
-            console.log('No profile selected');
+        const updatedProfile = await runProfileMutation(async () => {
+            await cancelProfileApplication();
+            const selectedProfile = extension_settings.connectionManager.selectedProfile;
+            const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
+            if (!profile) {
+                console.log('No profile selected');
+                return null;
+            }
+            const oldProfile = structuredClone(profile);
+            await updateConnectionProfile(profile);
+            await renderDetailsContent(detailsContent);
+            saveSettingsDebounced();
+            renderQuickSwitcher();
+            return { oldProfile, profile };
+        });
+        if (!updatedProfile) {
             return;
         }
-        const oldProfile = structuredClone(profile);
-        await updateConnectionProfile(profile);
-        await renderDetailsContent(detailsContent);
-        saveSettingsDebounced();
-        await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
-        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
+        await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, updatedProfile.oldProfile, updatedProfile.profile);
+        if (extension_settings.connectionManager.selectedProfile === updatedProfile.profile.id) {
+            await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, updatedProfile.profile.name);
+        }
         toastr.success('Connection profile updated', '', { timeOut: 1500 });
     });
 
     const deleteButton = document.getElementById('delete_connection_profile');
     deleteButton.addEventListener('click', async () => {
-        await deleteConnectionProfile();
-        renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
-        await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
+        const deletedProfile = await runProfileMutation(async () => {
+            const profile = await deleteConnectionProfile(cancelProfileApplication);
+            if (!profile) {
+                return null;
+            }
+            renderConnectionProfiles(profiles);
+            await renderDetailsContent(detailsContent);
+            toggleProfileSpecificButtons();
+            renderQuickSwitcher();
+            return profile;
+        });
+        if (!deletedProfile) {
+            return;
+        }
+        await eventSource.emit(event_types.CONNECTION_PROFILE_DELETED, deletedProfile);
+        if (!extension_settings.connectionManager.selectedProfile) {
+            await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
+        }
     });
 
     const editButton = document.getElementById('edit_connection_profile');
@@ -853,37 +1215,46 @@ export async function init() {
             return;
         }
 
-        const newExcludeList = template.find('input[name="exclude"]:not(:checked)').map(function () {
-            return Object.entries(FANCY_NAMES).find(x => x[1] === String($(this).val()))?.[0];
-        }).get();
-
-        const oldProfile = structuredClone(profile);
-        if (newExcludeList.length !== profile.exclude.length || !newExcludeList.every(e => profile.exclude.includes(e))) {
-            profile.exclude = newExcludeList;
-            for (const command of newExcludeList) {
-                delete profile[command];
+        const updatedProfile = await runProfileMutation(async () => {
+            if (extension_settings.connectionManager.selectedProfile !== selectedProfile || !extension_settings.connectionManager.profiles.includes(profile)) {
+                return null;
             }
-            if (saveChanges) {
-                await updateConnectionProfile(profile);
-            } else {
-                toastr.info('Press "Update" to record them into the profile.', 'Included settings list updated');
+            await cancelProfileApplication();
+            const newExcludeList = template.find('input[name="exclude"]:not(:checked)').map(function () {
+                return Object.entries(FANCY_NAMES).find(x => x[1] === String($(this).val()))?.[0];
+            }).get();
+
+            const oldProfile = structuredClone(profile);
+            if (newExcludeList.length !== profile.exclude.length || !newExcludeList.every(e => profile.exclude.includes(e))) {
+                profile.exclude = newExcludeList;
+                for (const command of newExcludeList) {
+                    delete profile[command];
+                }
+                if (saveChanges) {
+                    await updateConnectionProfile(profile);
+                } else {
+                    toastr.info('Press "Update" to record them into the profile.', 'Included settings list updated');
+                }
             }
-        }
 
-        if (profile.name !== newName) {
-            toastr.success('Connection profile renamed.');
-            profile.name = newName;
-        }
+            if (profile.name !== newName) {
+                toastr.success('Connection profile renamed.');
+                profile.name = newName;
+            }
 
-        saveSettingsDebounced();
-        await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
-        renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
+            saveSettingsDebounced();
+            renderConnectionProfiles(profiles);
+            await renderDetailsContent(detailsContent);
+            renderQuickSwitcher();
+            return { oldProfile, profile };
+        });
+        if (updatedProfile) {
+            await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, updatedProfile.oldProfile, updatedProfile.profile);
+        }
     });
 
     /** @type {HTMLElement} */
     const viewDetails = document.getElementById('view_connection_profile');
-    const detailsContent = document.getElementById('connection_profile_details_content');
     viewDetails.addEventListener('click', async () => {
         viewDetails.classList.toggle('active');
         detailsContent.classList.toggle('hidden');
@@ -928,9 +1299,12 @@ export async function init() {
                 return profile.name;
             }
 
+            const shouldAwait = !isFalseBoolean(String(args?.await));
             if (value === NONE) {
-                profiles.selectedIndex = 0;
-                profiles.dispatchEvent(new Event('change'));
+                const selectionPromise = selectConnectionProfile('');
+                if (shouldAwait) {
+                    await selectionPromise;
+                }
                 return NONE;
             }
 
@@ -940,14 +1314,13 @@ export async function init() {
                 return '';
             }
 
-            const shouldAwait = !isFalseBoolean(String(args?.await));
-            const awaitPromise = new Promise((resolve) => eventSource.once(event_types.CONNECTION_PROFILE_LOADED, resolve));
-
-            profiles.selectedIndex = Array.from(profiles.options).findIndex(o => o.value === profile.id);
-            profiles.dispatchEvent(new Event('change'));
+            const selectionPromise = selectConnectionProfile(profile.id);
 
             if (shouldAwait) {
-                await awaitPromise;
+                const profileLoaded = await selectionPromise;
+                if (!profileLoaded) {
+                    return '';
+                }
 
                 // We should also await the connection to be established
                 const parsedTimeout = parseInt(args?.timeout?.toString());
@@ -984,15 +1357,24 @@ export async function init() {
                 toastr.warning('Please provide a name for the new connection profile.');
                 return '';
             }
-            const profile = await createConnectionProfile(name);
+            const profile = await runProfileMutation(async () => {
+                await waitForProfileApplication();
+                const profile = await createConnectionProfile(name);
+                if (!profile) {
+                    return null;
+                }
+                extension_settings.connectionManager.profiles.push(profile);
+                extension_settings.connectionManager.selectedProfile = profile.id;
+                saveSettingsDebounced();
+                renderConnectionProfiles(profiles);
+                await renderDetailsContent(detailsContent);
+                toggleProfileSpecificButtons();
+                renderQuickSwitcher();
+                return profile;
+            });
             if (!profile) {
                 return '';
             }
-            extension_settings.connectionManager.profiles.push(profile);
-            extension_settings.connectionManager.selectedProfile = profile.id;
-            saveSettingsDebounced();
-            renderConnectionProfiles(profiles);
-            await renderDetailsContent(detailsContent);
             await eventSource.emit(event_types.CONNECTION_PROFILE_CREATED, profile);
             return profile.name;
         },
@@ -1002,18 +1384,26 @@ export async function init() {
         name: 'profile-update',
         helpString: 'Update the selected connection profile.',
         callback: async () => {
-            const selectedProfile = extension_settings.connectionManager.selectedProfile;
-            const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
-            if (!profile) {
-                toastr.warning('No profile selected.');
+            const updatedProfile = await runProfileMutation(async () => {
+                await cancelProfileApplication();
+                const selectedProfile = extension_settings.connectionManager.selectedProfile;
+                const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
+                if (!profile) {
+                    toastr.warning('No profile selected.');
+                    return null;
+                }
+                const oldProfile = structuredClone(profile);
+                await updateConnectionProfile(profile);
+                await renderDetailsContent(detailsContent);
+                saveSettingsDebounced();
+                renderQuickSwitcher();
+                return { oldProfile, profile };
+            });
+            if (!updatedProfile) {
                 return '';
             }
-            const oldProfile = structuredClone(profile);
-            await updateConnectionProfile(profile);
-            await renderDetailsContent(detailsContent);
-            saveSettingsDebounced();
-            await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
-            return profile.name;
+            await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, updatedProfile.oldProfile, updatedProfile.profile);
+            return updatedProfile.profile.name;
         },
     }));
 

@@ -173,6 +173,8 @@ export const extension_settings = {
         selectedProfile: '',
         /** @type {import('./extensions/connection-manager/index.js').ConnectionProfile[]} */
         profiles: [],
+        /** @type {string[]} */
+        quickProfileIds: [],
     },
     dice: {},
     /** @type {import('./char-data.js').RegexScriptData[]} */

@@ -920,7 +920,7 @@ export function initTextGenSettings() {
         saveSettingsDebounced();
     });
 
-    $('#textgen_type').on('change', function () {
+    $('#textgen_type').on('change', function (_event, data) {
         const type = String($(this).val());
         textgenerationwebui_settings.type = type;
 
@@ -948,9 +948,9 @@ export function initTextGenSettings() {
         setOnlineStatus('no_connection');
         BIAS_CACHE.delete(BIAS_KEY);
 
-        $('#main_api').trigger('change');
+        $('#main_api').trigger('change', { reconnect: data?.reconnect });
 
-        if (!SERVER_INPUTS[type] || textgenerationwebui_settings.server_urls[type]) {
+        if (data?.reconnect !== false && (!SERVER_INPUTS[type] || textgenerationwebui_settings.server_urls[type])) {
             $('#api_button_textgenerationwebui').trigger('click');
         }
 
