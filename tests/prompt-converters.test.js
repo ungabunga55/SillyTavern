@@ -867,6 +867,8 @@ describe('convertClaudeMessages', () => {
     test.each([
         ['claude-fable-5', true],
         ['claude-mythos-5-20260701', true],
+        ['claude-opus-5', true],
+        ['claude-opus-5-20260725', true],
         ['claude-opus-4-8', true],
         ['claude-sonnet-5', false],
         ['claude-opus-4-7', false],
