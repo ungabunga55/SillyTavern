@@ -610,6 +610,7 @@ export const settingsToUpdate = {
     function_calling: ['#openai_function_calling', 'function_calling', true, false],
     tool_call_recurse_limit: ['#tool_call_recurse_limit', 'tool_call_recurse_limit', false, false],
     show_thoughts: ['#openai_show_thoughts', 'show_thoughts', true, false],
+    claude_disable_thinking: ['#claude_disable_thinking', 'claude_disable_thinking', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
     reasoning_mode: ['#openai_reasoning_mode', 'reasoning_mode', false, false],
     meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
@@ -773,6 +774,7 @@ const default_settings = {
     continue_postfix: continue_postfix_types.SPACE,
     custom_prompt_post_processing: custom_prompt_post_processing_types.NONE,
     show_thoughts: true,
+    claude_disable_thinking: false,
     reasoning_effort: reasoning_effort_types.auto,
     reasoning_mode: reasoning_mode_types.auto,
     meta_reasoning_summary: 'auto',
@@ -3709,8 +3711,13 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.CLAUDE) {
+        const disableThinking = Boolean(settings.claude_disable_thinking) && /^claude-opus-5(?:$|-)/.test(getClaudeModelId(model));
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.use_sysprompt = settings.use_sysprompt;
+        generate_data.claude_disable_thinking = disableThinking;
+        if (disableThinking) {
+            generate_data.include_reasoning = false;
+        }
         generate_data.stop = getCustomStoppingStrings(); // Claude shouldn't have limits on stop strings.
         // Don't add a prefill on quiet gens (summarization) and when using continue prefill.
         if (type !== 'quiet' && !(type === 'continue' && settings.continue_prefill)) {
@@ -5693,6 +5700,7 @@ function setContinuePostfixControls() {
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
     const isOpenAIResponses = oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
+    const isClaudeOpus5 = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && /^claude-opus-5(?:$|-)/.test(getClaudeModelId(oai_settings.claude_model));
     const supportsReasoningMode = isOpenAIResponses && isOpenAIReasoningModeModel(getChatCompletionModel(oai_settings));
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
@@ -5700,6 +5708,7 @@ function setToolReasoningControls() {
     $('#openai_reasoning_mode').prop('disabled', !supportsReasoningMode);
     $('#openai_prompt_caching').prop('disabled', !isOpenAIResponses);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
+    $('#claude_disable_thinking_block').toggle(isClaudeOpus5);
 }
 
 function getMoonshotPreservedThinkingCount(settings = oai_settings) {
@@ -8692,6 +8701,11 @@ export function initOpenAI() {
     $('#openai_show_thoughts').on('input', function () {
         oai_settings.show_thoughts = !!$(this).prop('checked');
         setToolReasoningControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_disable_thinking').on('input', function () {
+        oai_settings.claude_disable_thinking = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

@@ -60,6 +60,7 @@ import {
     cachingSystemPromptForOpenRouter,
     addOpenRouterSignatures,
     supportsClaudeMidConversationSystemMessages,
+    shouldDisableClaudeThinking,
 } from '../../prompt-converters.js';
 
 import { readSecret, SECRET_KEYS } from '../secrets.js';
@@ -1757,10 +1758,13 @@ async function sendClaudeRequest(request, response) {
 
         const reasoningEffort = request.body.reasoning_effort;
         const includeReasoning = Boolean(request.body.include_reasoning);
+        const disableThinking = shouldDisableClaudeThinking(request.body.model, request.body.claude_disable_thinking);
         const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream, isAdaptiveModel);
 
         // Adaptive thinking: returns a string effort level (like Gemini 3)
-        if (useThinking && typeof budgetTokens === 'string') {
+        if (disableThinking) {
+            requestBody.thinking = { type: 'disabled' };
+        } else if (useThinking && typeof budgetTokens === 'string') {
             fixThinkingPrefill = true;
             requestBody.thinking = { type: 'adaptive' };
             if (omittedThinkingDisplayModel && includeReasoning) {

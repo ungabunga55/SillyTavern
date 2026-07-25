@@ -2191,6 +2191,17 @@
                                             </strong>
                                         </div>
                                     </div>
+                                    <div id="claude_disable_thinking_block" class="range-block" data-source="claude" style="display:none;">
+                                        <label for="claude_disable_thinking" class="checkbox_label widthFreeExpand">
+                                            <input id="claude_disable_thinking" type="checkbox" />
+                                            <span data-i18n="Disable Claude Opus 5 thinking">Disable Claude Opus 5 thinking</span>
+                                        </label>
+                                        <div class="toggle-description justifyLeft marginBot5">
+                                            <span data-i18n="Claude Opus 5 uses adaptive thinking by default. Enable this to send">Claude Opus 5 uses adaptive thinking by default. Enable this to send</span>
+                                            <code>thinking: { type: 'disabled' }</code>.
+                                            <span data-i18n="Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.">Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.</span>
+                                        </div>
+                                    </div>
                                     <div class="range-block" data-source="moonshot,openrouter">
                                         <label for="moonshot_preserved_thinking" class="checkbox_label widthFreeExpand">
                                             <input id="moonshot_preserved_thinking" type="checkbox" />
@@ -2275,8 +2286,8 @@
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
                                                 OpenRouter receives Extra High as <code>xhigh</code> and Maximum as <code>max</code> for every model. Minimum is sent as <code>minimal</code> when reasoning is requested, or <code>none</code> when it is disabled. Auto does not send an effort level.
                                             </strong>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="claude" data-i18n="Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto does not request optional thinking.">
-                                                Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto does not request optional thinking.
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="claude" data-i18n="Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto uses the model's default thinking behavior.">
+                                                Adaptive Claude models support low, medium, high, xhigh, and max efforts. Legacy Claude thinking allocates a token budget (min: 1024 tokens, low: 10%, medium: 25%, high: 50%, extra high/maximum: 95%). Auto uses the model's default thinking behavior.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="makersuite,vertexai">
                                                 <span data-i18n="Sets a dynamic reasoning depth level for thinking (Flash 3/Pro 3). High and low are supported by both, minimal and medium are Flash 3 only. Auto lets the model decide.">

@@ -876,6 +876,16 @@ describe('convertClaudeMessages', () => {
         expect(mod.supportsClaudeMidConversationSystemMessages(model)).toBe(expected);
     });
 
+    test.each([
+        ['claude-opus-5', true, true],
+        [' CLAUDE-OPUS-5-20260725 ', true, true],
+        ['claude-opus-5', false, false],
+        ['claude-opus-4-8', true, false],
+        ['claude-sonnet-5', true, false],
+    ])('detects disabled thinking support for %s', (model, disabled, expected) => {
+        expect(mod.shouldDisableClaudeThinking(model, disabled)).toBe(expected);
+    });
+
     test('extracts leading system messages when useSysPrompt is true', () => {
         const messages = [
             { role: 'system', content: 'System instruction' },

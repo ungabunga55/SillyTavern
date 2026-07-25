@@ -35,6 +35,7 @@ const GEMINI_MEDIA_RESOLUTION = {
 const enableThoughtSignatures = !!getConfigValue('gemini.thoughtSignatures', true, 'boolean');
 
 const CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX = /^claude-(?:fable-5|mythos-5|opus-4-8|opus-5)(?:$|-)/;
+const CLAUDE_DEFAULT_ADAPTIVE_THINKING_MODEL_REGEX = /^claude-opus-5(?:$|-)/;
 
 /**
  * @typedef {object} PromptNames
@@ -67,6 +68,16 @@ export function getPromptNames(request) {
  */
 export function supportsClaudeMidConversationSystemMessages(model) {
     return CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX.test(String(model || '').toLowerCase().trim());
+}
+
+/**
+ * Checks if adaptive thinking should be explicitly disabled for a Claude model.
+ * @param {string} model Model identifier
+ * @param {boolean} disabled Whether the user requested disabled thinking
+ * @returns {boolean} Whether to send the disabled thinking configuration
+ */
+export function shouldDisableClaudeThinking(model, disabled) {
+    return Boolean(disabled) && CLAUDE_DEFAULT_ADAPTIVE_THINKING_MODEL_REGEX.test(String(model || '').toLowerCase().trim());
 }
 
 /**
