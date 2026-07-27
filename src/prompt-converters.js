@@ -100,6 +100,27 @@ export function addAssistantPrefix(prompt, tools, property, allowWithTools = fal
 }
 
 /**
+ * Moves a leading Kimi thinking prefill from the final assistant message to reasoning_content.
+ * @param {any[]} messages Prompt messages array
+ * @returns {any[]} Transformed messages array
+ */
+export function extractKimiThinkingPrefill(messages) {
+    const message = messages.at(-1);
+    if (message?.role !== 'assistant' || typeof message.content !== 'string') {
+        return messages;
+    }
+
+    const match = message.content.match(/^\s*<think>(.*?)(?:<\/think>|$)/s);
+    if (!match) {
+        return messages;
+    }
+
+    message.reasoning_content = match[1].trim();
+    message.content = message.content.slice(match[0].length).trimStart();
+    return messages;
+}
+
+/**
  * Applies a post-processing step to the generated messages.
  * @param {object[]} messages Messages to post-process
  * @param {string} type Prompt conversion type

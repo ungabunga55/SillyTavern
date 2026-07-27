@@ -533,6 +533,7 @@ export const settingsToUpdate = {
     openrouter_allow_fallbacks: ['#openrouter_allow_fallbacks', 'openrouter_allow_fallbacks', true, true],
     openrouter_middleout: ['#openrouter_middleout', 'openrouter_middleout', false, true],
     tool_reasoning_mode: ['#tool_reasoning_mode', 'tool_reasoning_mode', false, false],
+    kimi_k3_thinking_prefill: ['#kimi_k3_thinking_prefill', 'kimi_k3_thinking_prefill', true, false],
     moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
     moonshot_preserved_thinking_all: ['#moonshot_preserved_thinking_all', 'moonshot_preserved_thinking_all', true, false],
     moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
@@ -749,6 +750,7 @@ const default_settings = {
     openrouter_allow_fallbacks: true,
     openrouter_middleout: openrouter_middleout_types.ON,
     tool_reasoning_mode: tool_reasoning_modes.DISABLED,
+    kimi_k3_thinking_prefill: false,
     moonshot_preserved_thinking: false,
     moonshot_preserved_thinking_all: false,
     moonshot_preserved_thinking_count: 3,
@@ -4088,6 +4090,10 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.min_p = Number(settings.min_p_openai);
         generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
         generate_data.top_a = Number(settings.top_a_openai);
+    }
+
+    if ([chat_completion_sources.MOONSHOT, chat_completion_sources.OPENROUTER].includes(settings.chat_completion_source)) {
+        generate_data.kimi_k3_thinking_prefill = Boolean(settings.kimi_k3_thinking_prefill);
     }
 
     // https://platform.moonshot.ai/docs/api/chat#public-service-address
@@ -8567,6 +8573,11 @@ export function initOpenAI() {
             ...oai_settings,
             tool_reasoning_mode: String($(this).val()),
         });
+        saveSettingsDebounced();
+    });
+
+    $('#kimi_k3_thinking_prefill').on('input', function () {
+        oai_settings.kimi_k3_thinking_prefill = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

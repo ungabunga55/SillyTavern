@@ -55,6 +55,7 @@ import {
     postProcessPrompt,
     PROMPT_PROCESSING_TYPE,
     addAssistantPrefix,
+    extractKimiThinkingPrefill,
     embedOpenRouterMedia,
     addReasoningContentToToolCalls,
     cachingSystemPromptForOpenRouter,
@@ -188,6 +189,15 @@ function isMoonshotKimiFixedParameterModel(model) {
  */
 function isMoonshotKimiK3Model(model) {
     return MOONSHOT_KIMI_K3_MODEL_REGEX.test(String(model || ''));
+}
+
+/**
+ * Checks if an OpenRouter model belongs to the Kimi K3 family.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model is Kimi K3
+ */
+function isOpenRouterKimiK3Model(model) {
+    return /(?:^|\/)kimi-k3(?:$|[-.:])/i.test(String(model || ''));
 }
 
 /**
@@ -3826,6 +3836,13 @@ router.post('/generate', async function (request, response) {
                 if (isCacheableGemini && enableGeminiSystemPromptCache) {
                     cachingSystemPromptForOpenRouter(request.body.messages);
                 }
+
+                if (isOpenRouterKimiK3Model(request.body.model)
+                    && request.body.kimi_k3_thinking_prefill
+                    && !request.body.json_schema) {
+                    extractKimiThinkingPrefill(request.body.messages);
+                    addAssistantPrefix(request.body.messages, [], 'partial', true);
+                }
             }
 
             if (isGemini) {
@@ -4039,7 +4056,8 @@ router.post('/generate', async function (request, response) {
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MOONSHOT, request.body.secret_id);
             headers = {};
             const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
-            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning);
+            const thinkingPrefill = isKimiK3 && Boolean(request.body.kimi_k3_thinking_prefill) && !request.body.json_schema;
+            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill;
             const preservedThinking = thinkingEnabled && Boolean(request.body.moonshot_preserved_thinking);
             bodyParams = isKimiK3 && thinkingEnabled
                 ? {}
@@ -4052,9 +4070,14 @@ router.post('/generate', async function (request, response) {
                 bodyParams.reasoning_effort = request.body.reasoning_effort;
             }
             normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
-            request.body.json_schema
-                ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
-                : addAssistantPrefix(request.body.messages, [], 'partial', true);
+            if (request.body.json_schema) {
+                setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
+            } else {
+                if (thinkingPrefill) {
+                    extractKimiThinkingPrefill(request.body.messages);
+                }
+                addAssistantPrefix(request.body.messages, [], 'partial', true);
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.COMETAPI) {
             apiUrl = API_COMETAPI;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.COMETAPI, request.body.secret_id);

@@ -79,6 +79,44 @@ describe('addAssistantPrefix', () => {
 });
 
 
+describe('extractKimiThinkingPrefill', () => {
+    test('moves a closed leading think block from the final assistant message', () => {
+        const prompt = [
+            { role: 'user', content: 'hi' },
+            { role: 'assistant', content: '<think>I should continue.</think>Visible prefix' },
+        ];
+        mod.extractKimiThinkingPrefill(prompt);
+        expect(prompt[1]).toEqual({
+            role: 'assistant',
+            content: 'Visible prefix',
+            reasoning_content: 'I should continue.',
+        });
+    });
+
+    test('moves an unclosed leading think block and leaves content empty', () => {
+        const prompt = [{ role: 'assistant', content: '  <think>I should continue.  ' }];
+        mod.extractKimiThinkingPrefill(prompt);
+        expect(prompt[0]).toEqual({
+            role: 'assistant',
+            content: '',
+            reasoning_content: 'I should continue.',
+        });
+    });
+
+    test('ignores think blocks outside the final assistant message', () => {
+        const prompt = [
+            { role: 'assistant', content: '<think>Earlier reasoning</think>' },
+            { role: 'user', content: 'hi' },
+        ];
+        mod.extractKimiThinkingPrefill(prompt);
+        expect(prompt).toEqual([
+            { role: 'assistant', content: '<think>Earlier reasoning</think>' },
+            { role: 'user', content: 'hi' },
+        ]);
+    });
+});
+
+
 describe('convertTextCompletionPrompt', () => {
     test('passes through string input unchanged', () => {
         expect(mod.convertTextCompletionPrompt('raw prompt')).toBe('raw prompt');
