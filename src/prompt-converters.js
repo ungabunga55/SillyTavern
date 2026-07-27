@@ -100,11 +100,11 @@ export function addAssistantPrefix(prompt, tools, property, allowWithTools = fal
 }
 
 /**
- * Moves a leading Kimi thinking prefill from the final assistant message to reasoning_content.
+ * Moves a leading Moonshot thinking prefill from the final assistant message to reasoning_content.
  * @param {any[]} messages Prompt messages array
  * @returns {any[]} Transformed messages array
  */
-export function extractKimiThinkingPrefill(messages) {
+export function extractMoonshotThinkingPrefill(messages) {
     const message = messages.at(-1);
     if (message?.role !== 'assistant' || typeof message.content !== 'string') {
         return messages;

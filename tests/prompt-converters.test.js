@@ -79,13 +79,13 @@ describe('addAssistantPrefix', () => {
 });
 
 
-describe('extractKimiThinkingPrefill', () => {
+describe('extractMoonshotThinkingPrefill', () => {
     test('moves a closed leading think block from the final assistant message', () => {
         const prompt = [
             { role: 'user', content: 'hi' },
             { role: 'assistant', content: '<think>I should continue.</think>Visible prefix' },
         ];
-        mod.extractKimiThinkingPrefill(prompt);
+        mod.extractMoonshotThinkingPrefill(prompt);
         expect(prompt[1]).toEqual({
             role: 'assistant',
             content: 'Visible prefix',
@@ -95,7 +95,7 @@ describe('extractKimiThinkingPrefill', () => {
 
     test('moves an unclosed leading think block and leaves content empty', () => {
         const prompt = [{ role: 'assistant', content: '  <think>I should continue.  ' }];
-        mod.extractKimiThinkingPrefill(prompt);
+        mod.extractMoonshotThinkingPrefill(prompt);
         expect(prompt[0]).toEqual({
             role: 'assistant',
             content: '',
@@ -108,7 +108,7 @@ describe('extractKimiThinkingPrefill', () => {
             { role: 'assistant', content: '<think>Earlier reasoning</think>' },
             { role: 'user', content: 'hi' },
         ];
-        mod.extractKimiThinkingPrefill(prompt);
+        mod.extractMoonshotThinkingPrefill(prompt);
         expect(prompt).toEqual([
             { role: 'assistant', content: '<think>Earlier reasoning</think>' },
             { role: 'user', content: 'hi' },

@@ -55,7 +55,7 @@ import {
     postProcessPrompt,
     PROMPT_PROCESSING_TYPE,
     addAssistantPrefix,
-    extractKimiThinkingPrefill,
+    extractMoonshotThinkingPrefill,
     embedOpenRouterMedia,
     addReasoningContentToToolCalls,
     cachingSystemPromptForOpenRouter,
@@ -192,12 +192,21 @@ function isMoonshotKimiK3Model(model) {
 }
 
 /**
- * Checks if an OpenRouter model belongs to the Kimi K3 family.
+ * Checks if an OpenRouter model belongs to the Moonshot provider family.
  * @param {string} model Model identifier
- * @returns {boolean} True if the model is Kimi K3
+ * @returns {boolean} True if the model is published by Moonshot
  */
-function isOpenRouterKimiK3Model(model) {
-    return /(?:^|\/)kimi-k3(?:$|[-.:])/i.test(String(model || ''));
+function isOpenRouterMoonshotModel(model) {
+    return /(?:^|\/)moonshotai\//i.test(String(model || ''));
+}
+
+/**
+ * Checks if a Featherless model is published by Moonshot.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model belongs to Moonshot
+ */
+function isFeatherlessMoonshotModel(model) {
+    return /(?:^|\/)moonshotai\//i.test(String(model || ''));
 }
 
 /**
@@ -398,6 +407,11 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
     const nativeModel = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
     const family = getAtlascloudModelFamily(modelId);
     const includeReasoning = Boolean(request.body.include_reasoning);
+    const thinkingPrefill = family === 'moonshot' && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
+    const preservedThinking = family === 'moonshot' && Boolean(request.body.moonshot_preserved_thinking);
+    const thinkingEnabled = family === 'moonshot'
+        ? isMoonshotKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedThinking
+        : includeReasoning;
 
     function getReasoningEffort() {
         const effort = String(request.body.reasoning_effort || 'auto');
@@ -453,7 +467,7 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
         delete requestBody.repetition_penalty;
     }
 
-    if (!includeReasoning) {
+    if (!thinkingEnabled) {
         requestBody.thinking = { type: 'disabled' };
     } else {
         requestBody.thinking = { type: 'enabled' };
@@ -524,6 +538,14 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
 
     if (family === 'moonshot' && isMoonshotKimiAlwaysOnThinkingModel(nativeModel)) {
         requestBody.thinking = { type: 'enabled' };
+    }
+
+    if (family === 'moonshot') {
+        normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled, preservedThinking);
+        if (thinkingPrefill) {
+            extractMoonshotThinkingPrefill(requestBody.messages);
+            addAssistantPrefix(requestBody.messages, [], 'partial', true);
+        }
     }
 
     if (family === 'claude') {
@@ -695,6 +717,10 @@ function sanitizeFireworksRequestBody(requestBody, request) {
     const nativeModel = modelId.split('/').pop() || modelId;
     const family = getFireworksModelFamily(modelId);
     const includeReasoning = Boolean(request.body.include_reasoning);
+    const isMoonshot = isFireworksMoonshotModel(modelId);
+    const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
+    const preservedThinking = isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
+    const useMoonshotOptions = thinkingPrefill || preservedThinking;
 
     function getReasoningEffort() {
         const effort = String(request.body.reasoning_effort || 'auto');
@@ -736,9 +762,9 @@ function sanitizeFireworksRequestBody(requestBody, request) {
         delete requestBody.stop;
     }
 
-    if (family === 'zai' || family === 'deepseek' || family === 'moonshot' || family === 'qwen') {
-        const thinkingEnabled = family === 'moonshot'
-            ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning
+    if (family === 'zai' || family === 'deepseek' || family === 'moonshot' || family === 'qwen' || useMoonshotOptions) {
+        const thinkingEnabled = family === 'moonshot' || useMoonshotOptions
+            ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedThinking
             : includeReasoning;
         const reasoningEffort = getReasoningEffort();
         if (reasoningEffort) {
@@ -747,8 +773,12 @@ function sanitizeFireworksRequestBody(requestBody, request) {
             requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
         }
 
-        if (family === 'moonshot') {
-            normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled);
+        if (family === 'moonshot' || useMoonshotOptions) {
+            normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled, preservedThinking);
+            if (thinkingPrefill) {
+                extractMoonshotThinkingPrefill(requestBody.messages);
+                addAssistantPrefix(requestBody.messages, [], 'partial', true);
+            }
         }
     } else {
         delete requestBody.thinking;
@@ -947,6 +977,16 @@ function getFireworksModelFamily(modelId) {
     if (/^qwen3p\d-(?:plus|coder)$/.test(nativeModel)) return 'qwen';
     if (/^minimax-(m2p7|m3)$/.test(nativeModel)) return 'minimax';
     return 'generic';
+}
+
+/**
+ * Checks if a Fireworks model belongs to the Moonshot family.
+ * @param {string} modelId Lower-cased Fireworks model id
+ * @returns {boolean} True if the model is a Moonshot model or router
+ */
+function isFireworksMoonshotModel(modelId) {
+    const nativeModel = modelId.split('/').pop() || modelId;
+    return /^kimi(?:$|[-_.])/.test(nativeModel) || /(?:^|\/)moonshotai(?:\/|$)/.test(modelId);
 }
 
 /**
@@ -1492,9 +1532,9 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
 }
 
 /**
- * Moves SillyTavern's internal reasoning field to Kimi's reasoning_content field.
+ * Moves SillyTavern's internal reasoning field to Moonshot's reasoning_content field.
  * @param {object[]} messages Prompt messages
- * @param {boolean} thinkingEnabled Whether the request uses Kimi thinking mode
+ * @param {boolean} thinkingEnabled Whether the request uses Moonshot thinking mode
  * @param {boolean} preservedThinking Whether assistant reasoning history should be retained
  * @returns {void}
  */
@@ -3755,6 +3795,7 @@ router.post('/generate', async function (request, response) {
             // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
             headers = getOpenRouterHeaders(request.body);
             const includeReasoning = Boolean(request.body.include_reasoning);
+            const isMoonshot = isOpenRouterMoonshotModel(request.body.model);
             bodyParams = {
                 transforms: getOpenRouterTransforms(request),
                 reasoning: {
@@ -3823,6 +3864,10 @@ router.post('/generate', async function (request, response) {
                 embedOpenRouterMedia(request.body.messages, { audio: true, video: true });
                 addOpenRouterSignatures(request.body.messages, request.body.model);
 
+                if (isMoonshot) {
+                    normalizeMoonshotReasoningContent(request.body.messages, true, Boolean(request.body.moonshot_preserved_thinking));
+                }
+
                 if (isClaude) {
                     if (enableSystemPromptCache) {
                         cachingSystemPromptForOpenRouter(request.body.messages, cacheTTL);
@@ -3837,10 +3882,10 @@ router.post('/generate', async function (request, response) {
                     cachingSystemPromptForOpenRouter(request.body.messages);
                 }
 
-                if (isOpenRouterKimiK3Model(request.body.model)
-                    && request.body.kimi_k3_thinking_prefill
+                if (isMoonshot
+                    && request.body.moonshot_thinking_prefill
                     && !request.body.json_schema) {
-                    extractKimiThinkingPrefill(request.body.messages);
+                    extractMoonshotThinkingPrefill(request.body.messages);
                     addAssistantPrefix(request.body.messages, [], 'partial', true);
                 }
             }
@@ -4032,6 +4077,16 @@ router.post('/generate', async function (request, response) {
                 min_p: request.body.min_p,
                 repetition_penalty: request.body.repetition_penalty,
             };
+            const isMoonshot = isFeatherlessMoonshotModel(request.body.model);
+            const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
+            const preservedThinking = isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
+            if (thinkingPrefill || preservedThinking) {
+                normalizeMoonshotReasoningContent(request.body.messages, true, preservedThinking);
+                if (thinkingPrefill) {
+                    extractMoonshotThinkingPrefill(request.body.messages);
+                    addAssistantPrefix(request.body.messages, [], 'partial', true);
+                }
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS) {
             const isAnonymous = request.body.pollinations_endpoint === POLLINATIONS_ENDPOINT.ANONYMOUS;
             apiUrl = isAnonymous ? API_POLLINATIONS_ANON : API_POLLINATIONS;
@@ -4056,9 +4111,9 @@ router.post('/generate', async function (request, response) {
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MOONSHOT, request.body.secret_id);
             headers = {};
             const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
-            const thinkingPrefill = isKimiK3 && Boolean(request.body.kimi_k3_thinking_prefill) && !request.body.json_schema;
-            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill;
-            const preservedThinking = thinkingEnabled && Boolean(request.body.moonshot_preserved_thinking);
+            const thinkingPrefill = Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
+            const preservedThinking = Boolean(request.body.moonshot_preserved_thinking);
+            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill || preservedThinking;
             bodyParams = isKimiK3 && thinkingEnabled
                 ? {}
                 : {
@@ -4074,7 +4129,7 @@ router.post('/generate', async function (request, response) {
                 setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
             } else {
                 if (thinkingPrefill) {
-                    extractKimiThinkingPrefill(request.body.messages);
+                    extractMoonshotThinkingPrefill(request.body.messages);
                 }
                 addAssistantPrefix(request.body.messages, [], 'partial', true);
             }

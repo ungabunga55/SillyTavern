@@ -347,12 +347,37 @@ function isMoonshotKimiK3Model(model) {
 }
 
 /**
- * Checks if an OpenRouter model belongs to the Kimi K3 family.
+ * Checks if an OpenRouter model belongs to the Moonshot provider family.
  * @param {string} model Model identifier
- * @returns {boolean} True if the model is Kimi K3
+ * @returns {boolean} True if the model is published by Moonshot
  */
-function isOpenRouterKimiK3Model(model) {
-    return /(?:^|\/)kimi-k3(?:$|[-.:])/i.test(String(model || ''));
+function isOpenRouterMoonshotModel(model) {
+    return /(?:^|\/)moonshotai\//i.test(String(model || ''));
+}
+
+/**
+ * Checks if the selected provider model supports Moonshot request fields.
+ * @param {string} source Chat completion source
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the model belongs to the Moonshot family
+ */
+function isMoonshotProviderModel(source, model) {
+    const modelId = String(model || '').toLowerCase();
+    const nativeModel = modelId.split('/').pop() || modelId;
+    switch (source) {
+        case chat_completion_sources.MOONSHOT:
+            return true;
+        case chat_completion_sources.OPENROUTER:
+            return isOpenRouterMoonshotModel(modelId);
+        case chat_completion_sources.FIREWORKS:
+            return /^kimi(?:$|[-_.])/.test(nativeModel) || /(?:^|\/)moonshotai(?:\/|$)/.test(modelId);
+        case chat_completion_sources.ATLASCLOUD:
+            return modelId.includes('moonshot') || modelId.includes('kimi');
+        case chat_completion_sources.FEATHERLESS:
+            return /(?:^|\/)moonshotai\//.test(modelId);
+        default:
+            return false;
+    }
 }
 
 /**
@@ -365,13 +390,13 @@ export function isMoonshotKimiAlwaysOnThinkingModel(model) {
 }
 
 /**
- * Checks if a Moonshot Kimi request will produce thinking output.
+ * Checks if a Moonshot request will produce thinking output.
  * @param {string} model Model identifier
  * @param {boolean} includeReasoning Whether reasoning was requested
  * @returns {boolean} True if thinking output should be preserved
  */
-export function isMoonshotKimiThinkingEnabledModel(model, includeReasoning) {
-    return isMoonshotKimiAlwaysOnThinkingModel(model) || ((isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3Model(model)) && includeReasoning);
+export function isMoonshotThinkingEnabledModel(model, includeReasoning) {
+    return isMoonshotKimiAlwaysOnThinkingModel(model) || Boolean(includeReasoning);
 }
 
 /**
@@ -533,7 +558,7 @@ export const settingsToUpdate = {
     openrouter_allow_fallbacks: ['#openrouter_allow_fallbacks', 'openrouter_allow_fallbacks', true, true],
     openrouter_middleout: ['#openrouter_middleout', 'openrouter_middleout', false, true],
     tool_reasoning_mode: ['#tool_reasoning_mode', 'tool_reasoning_mode', false, false],
-    kimi_k3_thinking_prefill: ['#kimi_k3_thinking_prefill', 'kimi_k3_thinking_prefill', true, false],
+    moonshot_thinking_prefill: ['#moonshot_thinking_prefill', 'moonshot_thinking_prefill', true, false],
     moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
     moonshot_preserved_thinking_all: ['#moonshot_preserved_thinking_all', 'moonshot_preserved_thinking_all', true, false],
     moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
@@ -750,7 +775,7 @@ const default_settings = {
     openrouter_allow_fallbacks: true,
     openrouter_middleout: openrouter_middleout_types.ON,
     tool_reasoning_mode: tool_reasoning_modes.DISABLED,
-    kimi_k3_thinking_prefill: false,
+    moonshot_thinking_prefill: false,
     moonshot_preserved_thinking: false,
     moonshot_preserved_thinking_all: false,
     moonshot_preserved_thinking_count: 3,
@@ -1214,12 +1239,14 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const audioInlining = isAudioInliningSupported();
     const canUseTools = ToolManager.isToolCallingSupported();
     const includeSignature = isReasoningSignatureSupported();
-    const isMoonshotKimiThinkingEnabled = oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT
-        && isMoonshotKimiThinkingEnabledModel(oai_settings.moonshot_model, oai_settings.show_thoughts);
-    const isOpenRouterKimiK3 = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
-        && isOpenRouterKimiK3Model(oai_settings.openrouter_model);
-    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking
-        && (isMoonshotKimiThinkingEnabled || isOpenRouterKimiK3);
+    const moonshotModel = getChatCompletionModel(oai_settings);
+    const isMoonshotModel = isMoonshotProviderModel(oai_settings.chat_completion_source, moonshotModel);
+    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && isMoonshotModel;
+    const isMoonshotThinkingEnabled = isMoonshotModel && (
+        preserveThinkingHistory
+        || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        || isMoonshotThinkingEnabledModel(moonshotModel, oai_settings.show_thoughts || oai_settings.moonshot_thinking_prefill)
+    );
     const preservedThinkingPrompts = new Set();
     if (preserveThinkingHistory) {
         let remaining = oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount();
@@ -1238,9 +1265,9 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             }
         }
     }
-    const isToolReasoningProvider = isMoonshotKimiThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
+    const isToolReasoningProvider = isMoonshotThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     let toolReasoningMode = tool_reasoning_modes.DISABLED;
-    if (isMoonshotKimiThinkingEnabled) {
+    if (isMoonshotThinkingEnabled) {
         toolReasoningMode = tool_reasoning_modes.ACTIVE_CHAIN;
     } else if (isToolReasoningProvider) {
         toolReasoningMode = getEffectiveToolReasoningMode();
@@ -4092,13 +4119,13 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_a = Number(settings.top_a_openai);
     }
 
-    if ([chat_completion_sources.MOONSHOT, chat_completion_sources.OPENROUTER].includes(settings.chat_completion_source)) {
-        generate_data.kimi_k3_thinking_prefill = Boolean(settings.kimi_k3_thinking_prefill);
+    if ([chat_completion_sources.MOONSHOT, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS].includes(settings.chat_completion_source)) {
+        generate_data.moonshot_thinking_prefill = Boolean(settings.moonshot_thinking_prefill);
+        generate_data.moonshot_preserved_thinking = Boolean(settings.moonshot_preserved_thinking);
     }
 
     // https://platform.moonshot.ai/docs/api/chat#public-service-address
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        generate_data.moonshot_preserved_thinking = Boolean(settings.moonshot_preserved_thinking);
         // Kimi K2.5+ models use fixed sampler values; sending modified values is rejected.
         if (isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3Model(model)) {
             delete generate_data.temperature;
@@ -4457,7 +4484,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FEATHERLESS].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -8576,8 +8603,8 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
-    $('#kimi_k3_thinking_prefill').on('input', function () {
-        oai_settings.kimi_k3_thinking_prefill = !!$(this).prop('checked');
+    $('#moonshot_thinking_prefill').on('input', function () {
+        oai_settings.moonshot_thinking_prefill = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

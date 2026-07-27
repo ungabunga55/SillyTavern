@@ -2174,7 +2174,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="deepseek,nvidia,agentrouter,aimlapi,openrouter,requesty,custom,claude,meta,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,atlascloud,workers_ai">
+                                    <div class="range-block" data-source="deepseek,nvidia,agentrouter,aimlapi,openrouter,requesty,custom,claude,meta,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,atlascloud,workers_ai,featherless">
                                         <label for="openai_show_thoughts" class="checkbox_label widthFreeExpand">
                                             <input id="openai_show_thoughts" type="checkbox" />
                                             <span data-i18n="Request model reasoning">Request model reasoning</span>
@@ -2202,18 +2202,18 @@
                                             <span data-i18n="Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.">Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.</span>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="moonshot,openrouter">
-                                        <label for="kimi_k3_thinking_prefill" class="checkbox_label widthFreeExpand">
-                                            <input id="kimi_k3_thinking_prefill" type="checkbox" />
-                                            <span data-i18n="Enable Kimi K3 thinking prefill">Enable Kimi K3 thinking prefill</span>
+                                    <div class="range-block" data-source="moonshot,openrouter,fireworks,atlascloud,featherless">
+                                        <label for="moonshot_thinking_prefill" class="checkbox_label widthFreeExpand">
+                                            <input id="moonshot_thinking_prefill" type="checkbox" />
+                                            <span data-i18n="Enable Moonshot thinking prefill">Enable Moonshot thinking prefill</span>
                                         </label>
                                         <div class="toggle-description justifyLeft marginBot5">
-                                            <span data-i18n="Moves a leading &lt;think&gt; block from the final assistant prefill into Kimi K3 reasoning and enables partial mode. OpenRouter requires a provider that supports Moonshot partial mode.">
-                                                Moves a leading <code>&lt;think&gt;</code> block from the final assistant prefill into Kimi K3 reasoning and enables partial mode. OpenRouter requires a provider that supports Moonshot partial mode.
+                                            <span data-i18n="Moves a leading &lt;think&gt; block from the final assistant prefill into Moonshot reasoning and enables partial mode. The selected host must support Moonshot partial mode.">
+                                                Moves a leading <code>&lt;think&gt;</code> block from the final assistant prefill into Moonshot reasoning and enables partial mode. The selected host must support Moonshot partial mode.
                                             </span>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="moonshot,openrouter">
+                                    <div class="range-block" data-source="moonshot,openrouter,fireworks,atlascloud,featherless">
                                         <label for="moonshot_preserved_thinking" class="checkbox_label widthFreeExpand">
                                             <input id="moonshot_preserved_thinking" type="checkbox" />
                                             <span data-i18n="Send preserved thinking">Send preserved thinking</span>
