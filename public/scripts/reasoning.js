@@ -173,6 +173,33 @@ export function extractReasoningFromData(data, {
 }
 
 /**
+ * Extracts complete opaque thinking blocks from a direct Claude response.
+ * Empty thinking text is valid when Claude omits the display summary.
+ * @param {object} data Response data
+ * @param {object} [options] Optional source overrides
+ * @param {string|null} [options.mainApi] Override for main API
+ * @param {string|null} [options.chatCompletionSource] Override for chat completion source
+ * @returns {object[]} Complete thinking blocks in response order
+ */
+export function extractClaudeThinkingBlocks(data, {
+    mainApi = null,
+    chatCompletionSource = null,
+} = {}) {
+    if ((mainApi ?? main_api) !== 'openai' || (chatCompletionSource ?? oai_settings.chat_completion_source) !== chat_completion_sources.CLAUDE) {
+        return [];
+    }
+
+    const blocks = Array.isArray(data?.content)
+        ? data.content.filter(block => ['thinking', 'redacted_thinking'].includes(block?.type))
+        : [];
+    const isComplete = blocks.every(block => block.type === 'thinking'
+        ? typeof block.thinking === 'string' && typeof block.signature === 'string' && block.signature.length > 0
+        : typeof block.data === 'string' && block.data.length > 0);
+
+    return isComplete ? structuredClone(blocks) : [];
+}
+
+/**
  * Extracts encrypted reasoning signature from the response data.
  * These signatures are used to maintain reasoning context across multi-turn conversations.
  * @param {object} data Response data

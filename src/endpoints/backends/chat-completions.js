@@ -1895,7 +1895,9 @@ async function sendClaudeRequest(request, response) {
 
             /** @type {any} */
             const generateResponseJson = await generateResponse.json();
-            const responseText = generateResponseJson?.content?.[0]?.text || '';
+            const responseText = Array.isArray(generateResponseJson?.content)
+                ? generateResponseJson.content.filter(block => block?.type === 'text').map(block => block.text).join('')
+                : '';
             console.debug('Claude response:', generateResponseJson);
 
             // Wrap it back to OAI format + save the original content

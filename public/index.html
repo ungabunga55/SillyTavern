@@ -2202,6 +2202,29 @@
                                             <span data-i18n="Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.">Disabling thinking may reduce tool-use reliability or expose internal XML tags in visible output.</span>
                                         </div>
                                     </div>
+                                    <div class="range-block" data-source="claude">
+                                        <label for="claude_preserved_thinking" class="checkbox_label widthFreeExpand">
+                                            <input id="claude_preserved_thinking" type="checkbox" />
+                                            <span data-i18n="Preserve Claude thinking">Preserve Claude thinking</span>
+                                        </label>
+                                        <div class="flex-container oneline-dropdown marginTop10">
+                                            <label for="claude_preserved_thinking_count" data-i18n="Recent thinking turns">
+                                                Recent thinking turns
+                                            </label>
+                                            <div class="flex-container">
+                                                <input id="claude_preserved_thinking_count" class="text_pole widthUnset" type="number" min="1" max="1000" step="1" />
+                                                <label for="claude_preserved_thinking_all" class="checkbox_label widthUnset">
+                                                    <input id="claude_preserved_thinking_all" type="checkbox" />
+                                                    <span data-i18n="All">All</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="toggle-description justifyLeft marginTop5">
+                                            <span data-i18n="Returns complete, unmodified thinking blocks from all or the specified number of most recent Claude assistant turns. Blocks are used only with the same model that produced them.">
+                                                Returns complete, unmodified thinking blocks from all or the specified number of most recent Claude assistant turns. Blocks are used only with the same model that produced them.
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="range-block" data-source="moonshot,openrouter,fireworks,atlascloud,featherless">
                                         <label for="moonshot_thinking_prefill" class="checkbox_label widthFreeExpand">
                                             <input id="moonshot_thinking_prefill" type="checkbox" />

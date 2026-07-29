@@ -562,6 +562,9 @@ export const settingsToUpdate = {
     moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
     moonshot_preserved_thinking_all: ['#moonshot_preserved_thinking_all', 'moonshot_preserved_thinking_all', true, false],
     moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
+    claude_preserved_thinking: ['#claude_preserved_thinking', 'claude_preserved_thinking', true, false],
+    claude_preserved_thinking_all: ['#claude_preserved_thinking_all', 'claude_preserved_thinking_all', true, false],
+    claude_preserved_thinking_count: ['#claude_preserved_thinking_count', 'claude_preserved_thinking_count', false, false],
     ai21_model: ['#model_ai21_select', 'ai21_model', false, true],
     mistralai_model: ['#model_mistralai_select', 'mistralai_model', false, true],
     cohere_model: ['#model_cohere_select', 'cohere_model', false, true],
@@ -779,6 +782,9 @@ const default_settings = {
     moonshot_preserved_thinking: false,
     moonshot_preserved_thinking_all: false,
     moonshot_preserved_thinking_count: 3,
+    claude_preserved_thinking: false,
+    claude_preserved_thinking_all: false,
+    claude_preserved_thinking_count: 3,
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
     max_context_unlocked: false,
@@ -930,6 +936,9 @@ function setOpenAIMessages(chat) {
         const isOtherGroupMember = selected_group && chat[j].name !== name2;
         const signature = isSameModel && !isOtherGroupMember && !useNativeResponses ? chat[j]?.extra?.reasoning_signature : null;
         const reasoning = isSameModel && !isOtherGroupMember && !useNativeResponses ? String(chat[j]?.extra?.reasoning ?? '') : '';
+        const claudeThinkingBlocks = isSameModel && !isOtherGroupMember && currentApi === chat_completion_sources.CLAUDE && Array.isArray(chat[j]?.extra?.claude_thinking_blocks)
+            ? structuredClone(chat[j].extra.claude_thinking_blocks)
+            : [];
 
         // Remove reasoning metadata from invocations if the API/model don't match
         if (Array.isArray(invocations) && invocations.length > 0) {
@@ -943,7 +952,7 @@ function setOpenAIMessages(chat) {
             });
         }
 
-        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning };
+        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning, 'claudeThinkingBlocks': claudeThinkingBlocks };
         j++;
     }
 
@@ -1265,6 +1274,18 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             }
         }
     }
+    const preserveClaudeThinking = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && oai_settings.claude_preserved_thinking;
+    const preservedClaudeThinkingPrompts = new Set();
+    if (preserveClaudeThinking) {
+        let remaining = oai_settings.claude_preserved_thinking_all ? Infinity : getClaudePreservedThinkingCount();
+        for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
+            const candidate = messages[idx];
+            if (candidate?.role === 'assistant' && Array.isArray(candidate.claudeThinkingBlocks) && candidate.claudeThinkingBlocks.length > 0) {
+                preservedClaudeThinkingPrompts.add(candidate);
+                remaining--;
+            }
+        }
+    }
     const isToolReasoningProvider = isMoonshotThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     let toolReasoningMode = tool_reasoning_modes.DISABLED;
     if (isMoonshotThinkingEnabled) {
@@ -1401,6 +1422,10 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
 
         if (preservedThinkingPrompts.has(chatPrompt) && chatPrompt.reasoning) {
             await chatMessage.setReasoning(chatPrompt.reasoning);
+        }
+
+        if (preservedClaudeThinkingPrompts.has(chatPrompt)) {
+            await chatMessage.setClaudeThinkingBlocks(chatPrompt.claudeThinkingBlocks);
         }
 
         if (chatCompletion.canAfford(chatMessage)) {
@@ -4338,7 +4363,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', toolReasoning: '', images: [], signature: '', toolSignatures: {} };
+            const state = { reasoning: '', toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {} };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -4422,6 +4447,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
     const show_thoughts = overrideShowThoughts ?? oai_settings.show_thoughts;
 
     if (chat_completion_source === chat_completion_sources.CLAUDE) {
+        updateClaudeThinkingBlocksFromStream(data, state);
         if (show_thoughts) {
             state.reasoning += data?.delta?.thinking || '';
         }
@@ -4511,6 +4537,45 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         return content;
     } else {
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
+    }
+}
+
+/**
+ * Reassembles complete Claude thinking blocks from streaming events.
+ * Incomplete blocks are never exposed for later preservation.
+ * @param {object} data Anthropic streaming event
+ * @param {object} state Streaming state
+ */
+function updateClaudeThinkingBlocksFromStream(data, state) {
+    state.claudeThinkingBlocks ??= [];
+    state.claudeThinkingBlocksInProgress ??= {};
+    const index = Number(data?.index);
+
+    if (data?.type === 'content_block_start' && Number.isInteger(index) && ['thinking', 'redacted_thinking'].includes(data?.content_block?.type)) {
+        state.claudeThinkingBlocksInProgress[index] = structuredClone(data.content_block);
+        return;
+    }
+
+    const block = Number.isInteger(index) ? state.claudeThinkingBlocksInProgress[index] : null;
+    if (data?.type === 'content_block_delta' && block) {
+        if (block.type === 'thinking' && data?.delta?.type === 'thinking_delta') {
+            block.thinking = String(block.thinking || '') + String(data.delta.thinking || '');
+        } else if (block.type === 'thinking' && data?.delta?.type === 'signature_delta') {
+            block.signature = String(block.signature || '') + String(data.delta.signature || '');
+        } else if (block.type === 'redacted_thinking' && typeof data?.delta?.data === 'string') {
+            block.data = String(block.data || '') + data.delta.data;
+        }
+        return;
+    }
+
+    if (data?.type === 'content_block_stop' && block) {
+        const isComplete = block.type === 'thinking'
+            ? typeof block.thinking === 'string' && typeof block.signature === 'string' && block.signature.length > 0
+            : typeof block.data === 'string' && block.data.length > 0;
+        if (isComplete) {
+            state.claudeThinkingBlocks[index] = structuredClone(block);
+        }
+        delete state.claudeThinkingBlocksInProgress[index];
     }
 }
 
@@ -4773,6 +4838,8 @@ class Message {
     signature = null;
     /** @type {string?} */
     reasoning = null;
+    /** @type {object[]?} */
+    claudeThinkingBlocks = null;
 
     /**
      * @constructor
@@ -4847,6 +4914,16 @@ class Message {
         if (this.reasoning) {
             this.tokens += await tokenHandler.countAsync({ role: this.role, content: this.reasoning });
         }
+    }
+
+    /**
+     * Attach complete Claude thinking blocks and include them in prompt budgeting.
+     * @param {object[]} blocks Thinking and redacted_thinking blocks returned by Claude
+     * @returns {Promise<void>}
+     */
+    async setClaudeThinkingBlocks(blocks) {
+        this.claudeThinkingBlocks = structuredClone(blocks);
+        this.tokens += await tokenHandler.countAsync({ role: this.role, content: JSON.stringify(this.claudeThinkingBlocks) });
     }
 
     /**
@@ -5114,6 +5191,7 @@ class MessageCollection {
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
+                    ...(message.claudeThinkingBlocks?.length && { claude_thinking_blocks: message.claudeThinkingBlocks }),
                 });
             }
             return acc;
@@ -5405,6 +5483,7 @@ export class ChatCompletion {
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+                    ...(item.claudeThinkingBlocks?.length ? { claude_thinking_blocks: item.claudeThinkingBlocks } : {}),
                 };
                 chat.push(message);
             } else {
@@ -5667,6 +5746,7 @@ function loadOpenAISettings(data, settings) {
     setContinuePostfixControls();
     setToolReasoningControls();
     setMoonshotPreservedThinkingControls();
+    setClaudePreservedThinkingControls();
     ToolManager.RECURSE_LIMIT = oai_settings.tool_call_recurse_limit;
 
     $('#openrouter_providers_chat').trigger('change');
@@ -5755,6 +5835,19 @@ function setMoonshotPreservedThinkingControls() {
     $('#moonshot_preserved_thinking_count')
         .val(oai_settings.moonshot_preserved_thinking_count)
         .prop('disabled', !oai_settings.moonshot_preserved_thinking || oai_settings.moonshot_preserved_thinking_all);
+}
+
+function getClaudePreservedThinkingCount(settings = oai_settings) {
+    const count = Math.trunc(Number(settings.claude_preserved_thinking_count));
+    return Number.isFinite(count) && count > 0 ? Math.min(count, 1000) : default_settings.claude_preserved_thinking_count;
+}
+
+function setClaudePreservedThinkingControls() {
+    oai_settings.claude_preserved_thinking_count = getClaudePreservedThinkingCount();
+    $('#claude_preserved_thinking_all').prop('disabled', !oai_settings.claude_preserved_thinking);
+    $('#claude_preserved_thinking_count')
+        .val(oai_settings.claude_preserved_thinking_count)
+        .prop('disabled', !oai_settings.claude_preserved_thinking || oai_settings.claude_preserved_thinking_all);
 }
 
 async function getStatusOpen() {
@@ -8632,6 +8725,33 @@ export function initOpenAI() {
             moonshot_preserved_thinking_count: $(this).val(),
         });
         setMoonshotPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_preserved_thinking').on('input', function () {
+        oai_settings.claude_preserved_thinking = !!$(this).prop('checked');
+        setClaudePreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_preserved_thinking_all').on('input', function () {
+        oai_settings.claude_preserved_thinking_all = !!$(this).prop('checked');
+        setClaudePreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_preserved_thinking_count').on('input', function () {
+        const count = Math.trunc(Number($(this).val()));
+        if (Number.isFinite(count) && count > 0) {
+            oai_settings.claude_preserved_thinking_count = Math.min(count, 1000);
+            saveSettingsDebounced();
+        }
+    }).on('change', function () {
+        oai_settings.claude_preserved_thinking_count = getClaudePreservedThinkingCount({
+            ...oai_settings,
+            claude_preserved_thinking_count: $(this).val(),
+        });
+        setClaudePreservedThinkingControls();
         saveSettingsDebounced();
     });
 

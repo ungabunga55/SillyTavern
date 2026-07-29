@@ -270,7 +270,7 @@ import { initServerHistory } from './scripts/server-history.js';
 import { initSettingsSearch } from './scripts/setting-search.js';
 import { initBulkEdit } from './scripts/bulk-edit.js';
 import { getContext } from './scripts/st-context.js';
-import { extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
+import { extractClaudeThinkingBlocks, extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
 import { accountStorage } from './scripts/util/AccountStorage.js';
 import { initWelcomeScreen, openPermanentAssistantChat, openPermanentAssistantCard, getPermanentAssistantAvatar } from './scripts/welcome-screen.js';
 import { initDataMaid } from './scripts/data-maid.js';
@@ -3574,6 +3574,8 @@ class StreamingProcessor {
         this.reasoningSignature = null;
         /** @type {string} Reasoning text to preserve in tool-call chains. */
         this.toolReasoning = '';
+        /** @type {object[]} Complete Claude thinking blocks. */
+        this.claudeThinkingBlocks = [];
     }
 
     /**
@@ -3751,6 +3753,11 @@ class StreamingProcessor {
 
         await this.reasoningHandler.finish(messageId);
 
+        if (this.claudeThinkingBlocks.length > 0) {
+            message.extra = message.extra || {};
+            message.extra.claude_thinking_blocks = structuredClone(this.claudeThinkingBlocks);
+        }
+
         if (Array.isArray(this.swipes) && this.swipes.length > 0) {
             const swipeInfoExtra = structuredClone(message.extra ?? {});
             delete swipeInfoExtra.token_count;
@@ -3884,6 +3891,9 @@ class StreamingProcessor {
                 this.toolReasoning = state?.toolReasoning || this.reasoningHandler.reasoning;
                 this.images = state?.images ?? [];
                 this.reasoningSignature = state?.signature ?? null;
+                this.claudeThinkingBlocks = Array.isArray(state?.claudeThinkingBlocks)
+                    ? structuredClone(state.claudeThinkingBlocks.filter(Boolean))
+                    : [];
                 await eventSource.emit(event_types.STREAM_TOKEN_RECEIVED, text);
                 await sw.tick(async () => await this.onProgressStreaming(this.messageId, this.continueMessage + text));
             }
@@ -5481,6 +5491,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         let toolReasoning = reasoning;
         let imageUrls = extractImagesFromData(data);
         const reasoningSignature = extractReasoningSignatureFromData(data);
+        const claudeThinkingBlocks = extractClaudeThinkingBlocks(data);
         kobold_horde_model = title;
 
         const swipes = extractMultiSwipes(data, type);
@@ -5531,9 +5542,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         } else {
             // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
             if (originalType !== 'continue') {
-                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature }));
+                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, claudeThinkingBlocks }));
             } else {
-                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature }));
+                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, claudeThinkingBlocks }));
             }
 
             // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
@@ -6673,16 +6684,17 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {string} [reasoning] Message reasoning
  * @property {string[]} [imageUrls] Links to images
  * @property {string?} [reasoningSignature] Encrypted signature of the reasoning text
+ * @property {object[]} [claudeThinkingBlocks] Complete opaque Claude thinking blocks
  *
  * @typedef {object} SaveReplyResult
  * @property {string} type Type of generation
  * @property {string} getMessage Generated message
  */
-export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, claudeThinkingBlocks = [] }) {
     // Backward compatibility
     if (arguments.length > 1 && typeof arguments[0] !== 'object') {
         console.trace('saveReply called with positional arguments. Please use an object instead.');
-        [type, getMessage, fromStreaming, title, swipes, reasoning, imageUrls, reasoningSignature] = arguments;
+        [type, getMessage, fromStreaming, title, swipes, reasoning, imageUrls, reasoningSignature, claudeThinkingBlocks] = arguments;
     }
 
     const lastMessage = chat[chat.length - 1];
@@ -6704,6 +6716,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     if (!reasoning) {
         reasoning = '';
     }
+    claudeThinkingBlocks = Array.isArray(claudeThinkingBlocks) ? structuredClone(claudeThinkingBlocks) : [];
 
     let oldMessage = '';
     const generationFinished = new Date();
@@ -6721,6 +6734,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
             lastMessage.extra.reasoning = reasoning;
             lastMessage.extra.reasoning_duration = null;
             lastMessage.extra.reasoning_signature = reasoningSignature;
+            lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
             await processImageAttachment(lastMessage, { imageUrls });
             if (power_user.message_token_count_enabled) {
                 const tokenCountText = (reasoning || '') + lastMessage.mes;
@@ -6746,6 +6760,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.reasoning = reasoning;
         lastMessage.extra.reasoning_duration = null;
         lastMessage.extra.reasoning_signature = reasoningSignature;
+        lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         await processImageAttachment(lastMessage, { imageUrls });
         if (power_user.message_token_count_enabled) {
             const tokenCountText = (reasoning || '') + lastMessage.mes;
@@ -6767,6 +6782,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.model = getGeneratingModel();
         lastMessage.extra.reasoning += reasoning;
         lastMessage.extra.reasoning_signature = reasoningSignature;
+        lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         await processImageAttachment(lastMessage, { imageUrls });
         // We don't know if the reasoning duration extended, so we don't update it here on purpose.
         if (power_user.message_token_count_enabled) {
@@ -6790,6 +6806,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         newMessage.extra.reasoning = reasoning;
         newMessage.extra.reasoning_duration = null;
         newMessage.extra.reasoning_signature = reasoningSignature;
+        newMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         if (power_user.trim_spaces) {
             getMessage = getMessage.trim();
         }

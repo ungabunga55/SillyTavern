@@ -278,6 +278,8 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
     // Unsupported models only accept the top-level system prompt, so flatten later system messages into user turns.
     const parse = (str) => typeof str === 'string' ? JSON.parse(str) : str;
     messages.forEach((message) => {
+        const thinkingBlocks = getValidClaudeThinkingBlocks(message.claude_thinking_blocks);
+
         if (message.role === 'assistant' && message.tool_calls) {
             message.content = message.tool_calls.map((tc) => ({
                 type: 'tool_use',
@@ -354,10 +356,15 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
             });
         }
 
+        if (message.role === 'assistant' && thinkingBlocks.length > 0) {
+            message.content.unshift(...thinkingBlocks);
+        }
+
         // Remove offending properties
         delete message.name;
         delete message.tool_calls;
         delete message.tool_call_id;
+        delete message.claude_thinking_blocks;
     });
 
     // Images in assistant messages should be moved to the next user message
@@ -421,6 +428,33 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
     }
 
     return { messages: mergedMessages, systemPrompt: systemPrompt };
+}
+
+/**
+ * Validates an opaque sequence of Claude thinking blocks without modifying it.
+ * If any block is incomplete, the entire sequence is omitted.
+ * @param {unknown} value Candidate thinking blocks
+ * @returns {object[]} Complete cloned blocks
+ */
+function getValidClaudeThinkingBlocks(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+        return [];
+    }
+
+    const isValid = value.every(block => {
+        if (!block || typeof block !== 'object') {
+            return false;
+        }
+        if (block.type === 'thinking') {
+            return typeof block.thinking === 'string' && typeof block.signature === 'string' && block.signature.length > 0;
+        }
+        if (block.type === 'redacted_thinking') {
+            return typeof block.data === 'string' && block.data.length > 0;
+        }
+        return false;
+    });
+
+    return isValid ? structuredClone(value) : [];
 }
 
 /**
@@ -1041,7 +1075,10 @@ export function cachingAtDepthForClaude(messages, cachingAtDepth, ttl) {
         if (messages[i].role !== previousRoleName) {
             if (depth === cachingAtDepth || depth === cachingAtDepth + 2) {
                 const content = messages[i].content;
-                content[content.length - 1].cache_control = { type: 'ephemeral', ttl: ttl };
+                const cacheableBlock = content.findLast(block => !['thinking', 'redacted_thinking'].includes(block?.type));
+                if (cacheableBlock) {
+                    cacheableBlock.cache_control = { type: 'ephemeral', ttl: ttl };
+                }
             }
 
             if (depth === cachingAtDepth + 2) {

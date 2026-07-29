@@ -1082,6 +1082,62 @@ describe('convertClaudeMessages', () => {
         expect(toolResult.content).toBe('Found results');
     });
 
+    test('preserves an omitted Claude thinking block exactly', () => {
+        const thinkingBlock = {
+            type: 'thinking',
+            thinking: '',
+            signature: 'opaque-fable-signature',
+        };
+        const messages = [
+            { role: 'user', content: 'Hello' },
+            { role: 'assistant', content: 'Reply', claude_thinking_blocks: [thinkingBlock] },
+            { role: 'user', content: 'Continue' },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, false, names);
+        const assistant = result.messages.find(message => message.role === 'assistant');
+        expect(assistant.content).toEqual([
+            thinkingBlock,
+            { type: 'text', text: 'Reply' },
+        ]);
+        expect(assistant.claude_thinking_blocks).toBeUndefined();
+    });
+
+    test('preserves ordered thinking and redacted thinking blocks', () => {
+        const blocks = [
+            { type: 'thinking', thinking: 'Summary', signature: 'opaque-signature' },
+            { type: 'redacted_thinking', data: 'opaque-redacted-data' },
+        ];
+        const messages = [
+            { role: 'user', content: 'Hello' },
+            { role: 'assistant', content: 'Reply', claude_thinking_blocks: blocks },
+            { role: 'user', content: 'Continue' },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, false, names);
+        const assistant = result.messages.find(message => message.role === 'assistant');
+        expect(assistant.content.slice(0, 2)).toEqual(blocks);
+    });
+
+    test('omits the entire sequence when a Claude thinking block is incomplete', () => {
+        const messages = [
+            { role: 'user', content: 'Hello' },
+            {
+                role: 'assistant',
+                content: 'Reply',
+                claude_thinking_blocks: [
+                    { type: 'thinking', thinking: 'Complete', signature: 'opaque-signature' },
+                    { type: 'thinking', thinking: 'Missing signature' },
+                ],
+            },
+            { role: 'user', content: 'Continue' },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, false, names);
+        const assistant = result.messages.find(message => message.role === 'assistant');
+        expect(assistant.content).toEqual([{ type: 'text', text: 'Reply' }]);
+    });
+
     test('replaces empty text content with zero-width space', () => {
         const messages = [
             { role: 'user', content: [{ type: 'text', text: '' }] },
@@ -1338,6 +1394,19 @@ describe('cachingAtDepthForClaude', () => {
         ];
         mod.cachingAtDepthForClaude(messages, 10, '300');
         expect(messages[0].content[0].cache_control).toBeUndefined();
+    });
+
+    test('does not attach cache control to Claude thinking blocks', () => {
+        const thinkingBlock = { type: 'thinking', thinking: '', signature: 'opaque-signature' };
+        const messages = [
+            { role: 'user', content: [{ type: 'text', text: 'A' }] },
+            { role: 'assistant', content: [thinkingBlock, { type: 'text', text: 'B' }] },
+            { role: 'user', content: [{ type: 'text', text: 'C' }, thinkingBlock] },
+        ];
+
+        mod.cachingAtDepthForClaude(messages, 0, '300');
+        expect(messages[2].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '300' });
+        expect(messages[2].content[1]).toEqual(thinkingBlock);
     });
 });
 
