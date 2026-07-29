@@ -16,6 +16,7 @@ import {
 import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 import { setAdditionalHeaders } from '../../additional-headers.js';
 import { createHash } from 'node:crypto';
+import { getOpenRouterSessionId } from './openrouter-cache.js';
 
 export const router = express.Router();
 
@@ -359,6 +360,11 @@ router.post('/generate', async function (request, response) {
         }
 
         if (request.body.api_type === TEXTGEN_TYPES.OPENROUTER) {
+            const sessionId = getOpenRouterSessionId(request);
+            if (sessionId) {
+                request.body.session_id = sessionId;
+            }
+
             if (Array.isArray(request.body.provider) && request.body.provider.length > 0) {
                 request.body.provider = {
                     allow_fallbacks: request.body.allow_fallbacks ?? true,

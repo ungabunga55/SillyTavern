@@ -76,6 +76,7 @@ import {
 } from '../tokenizers.js';
 import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
+import { getOpenRouterSessionId } from './openrouter-cache.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
 const API_AGENTROUTER = 'https://agentrouter.org/v1';
@@ -1567,12 +1568,49 @@ function normalizeMoonshotReasoningContent(messages, thinkingEnabled, preservedT
  * Module-scoped Claude caching configuration values.
  */
 const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
+const enableAutomaticPromptCache = getConfigValue('claude.enableAutomaticPromptCache', false, 'boolean');
 const enableSystemPromptCache = getConfigValue('claude.enableSystemPromptCache', false, 'boolean');
 const cachingAtDepth = (() => {
     const value = getConfigValue('claude.cachingAtDepth', -1, 'number');
     return Number.isInteger(value) && value >= 0 ? value : -1;
 })();
 const enableAdaptiveThinking = getConfigValue('claude.enableAdaptiveThinking', true, 'boolean');
+let warnedAutomaticCacheBreakpointLimit = false;
+
+/**
+ * Adds top-level automatic caching when an explicit breakpoint slot remains.
+ * @param {object} requestBody Anthropic-compatible request body
+ */
+function addAutomaticClaudeCacheControl(requestBody) {
+    if (!enableAutomaticPromptCache) {
+        return;
+    }
+
+    let explicitBreakpoints = 0;
+    for (const section of [requestBody.system, requestBody.tools]) {
+        if (Array.isArray(section)) {
+            explicitBreakpoints += section.filter(block => block?.cache_control).length;
+        }
+    }
+    for (const message of requestBody.messages || []) {
+        explicitBreakpoints += message?.cache_control ? 1 : 0;
+        if (Array.isArray(message?.content)) {
+            explicitBreakpoints += message.content.filter(block => block?.cache_control).length;
+        }
+    }
+
+    if (explicitBreakpoints >= 4) {
+        if (!warnedAutomaticCacheBreakpointLimit) {
+            console.warn('Claude automatic prompt caching disabled for requests already using four explicit cache breakpoints.');
+            warnedAutomaticCacheBreakpointLimit = true;
+        }
+        return;
+    }
+
+    requestBody.cache_control = cacheTTL === '1h'
+        ? { type: 'ephemeral', ttl: '1h' }
+        : { type: 'ephemeral' };
+}
 
 /**
  * Cache for cacheable (writing) OpenRouter model IDs.
@@ -1869,6 +1907,7 @@ async function sendClaudeRequest(request, response) {
             additionalHeaders['anthropic-beta'] = betaHeaders.join(',');
         }
 
+        addAutomaticClaudeCacheControl(requestBody);
         console.debug('Claude request:', requestBody);
 
         const generateResponse = await fetch(apiUrl + '/messages', {
@@ -3805,6 +3844,11 @@ router.post('/generate', async function (request, response) {
                 },
             };
 
+            const sessionId = getOpenRouterSessionId(request);
+            if (sessionId) {
+                bodyParams['session_id'] = sessionId;
+            }
+
             if (request.body.logprobs > 0) {
                 bodyParams['top_logprobs'] = request.body.logprobs;
                 bodyParams['logprobs'] = true;
@@ -4303,6 +4347,11 @@ router.post('/generate', async function (request, response) {
                 'n': request.body.n,
                 ...bodyParams,
             };
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER
+            && /^anthropic\/claude/.test(request.body.model)) {
+            addAutomaticClaudeCacheControl(requestBody);
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && isMoonshotKimiFixedParameterModel(request.body.model)) {

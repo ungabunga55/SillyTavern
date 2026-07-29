@@ -424,6 +424,7 @@ export const OPENROUTER_KEYS = [
     'stop',
     'provider',
     'include_reasoning',
+    'session_id',
 ];
 
 // https://github.com/vllm-project/vllm/blob/0f8a91401c89ac0a8018def3756829611b57727f/vllm/entrypoints/openai/protocol.py#L220

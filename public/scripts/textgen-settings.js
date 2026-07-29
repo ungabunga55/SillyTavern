@@ -2,6 +2,7 @@ import {
     abortStatusCheck,
     eventSource,
     event_types,
+    getCurrentChatId,
     getRequestHeaders,
     getStoppingStrings,
     main_api,
@@ -213,6 +214,7 @@ export const textgenerationwebui_settings = {
     openrouter_model: 'openrouter/auto',
     openrouter_site_url: 'https://sillytavern.app',
     openrouter_app_name: 'SillyTavern',
+    openrouter_sticky_routing: false,
     openrouter_providers: [],
     openrouter_quantizations: [],
     vllm_model: '',
@@ -314,6 +316,7 @@ export const setting_names = [
     'bypass_status_check',
     'openrouter_site_url',
     'openrouter_app_name',
+    'openrouter_sticky_routing',
     'openrouter_allow_fallbacks',
     'xtc_threshold',
     'xtc_probability',
@@ -1761,6 +1764,10 @@ export function createTextGenGenerationData(settings, model, finalPrompt = null,
         params.allow_fallbacks = settings.openrouter_allow_fallbacks;
         params.openrouter_site_url = settings.openrouter_site_url;
         params.openrouter_app_name = settings.openrouter_app_name;
+        if (settings.openrouter_sticky_routing && type !== 'quiet') {
+            params.openrouter_sticky_routing = true;
+            params.chat_id = getCurrentChatId();
+        }
     }
 
     if (settings.type === KOBOLDCPP) {

@@ -351,6 +351,11 @@ ollama:
   batchSize: -1
 # -- ANTHROPIC CLAUDE API CONFIGURATION --
 claude:
+  # Enables automatic prompt caching for direct Anthropic and OpenRouter Claude requests.
+  # Anthropic automatically advances the cache breakpoint as the conversation grows.
+  # This can be combined with the explicit system prompt and depth breakpoints below.
+  # https://platform.claude.com/docs/en/build-with-claude/prompt-caching#automatic-caching
+  enableAutomaticPromptCache: false
   # Enables caching of the system prompt (if supported).
   # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
   # -- IMPORTANT! --
@@ -366,7 +371,7 @@ claude:
   # should be ideal for most use cases.
   # Any value other than a non-negative integer will be ignored and caching at depth will not be enabled.
   cachingAtDepth: -1
-  # Use 1h TTL instead of the default 5m.
+  # Use 1h TTL instead of the default 5m for automatic and explicit caching.
   ## 5m: base price x 1.25
   ## 1h: base price x 2
   extendedTTL: false

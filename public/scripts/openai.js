@@ -551,6 +551,7 @@ export const settingsToUpdate = {
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
     openrouter_site_url: ['#openrouter_site_url', 'openrouter_site_url', false, true],
     openrouter_app_name: ['#openrouter_app_name', 'openrouter_app_name', false, true],
+    openrouter_sticky_routing: ['#openrouter_sticky_routing', 'openrouter_sticky_routing', true, true],
     requesty_model: ['#model_requesty_select', 'requesty_model', false, true],
     openrouter_use_fallback: ['#openrouter_use_fallback', 'openrouter_use_fallback', true, true],
     openrouter_providers: ['#openrouter_providers_chat', 'openrouter_providers', false, true],
@@ -818,6 +819,7 @@ const default_settings = {
     request_image_resolution: '',
     openrouter_site_url: 'https://sillytavern.app',
     openrouter_app_name: 'SillyTavern',
+    openrouter_sticky_routing: false,
     seed: -1,
     n: 1,
     bind_preset_to_connection: true,
@@ -3793,6 +3795,10 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.quantizations = settings.openrouter_quantizations;
         generate_data.allow_fallbacks = settings.openrouter_allow_fallbacks;
         generate_data.middleout = settings.openrouter_middleout;
+        if (settings.openrouter_sticky_routing && type !== 'quiet') {
+            generate_data.openrouter_sticky_routing = true;
+            generate_data.chat_id = getCurrentChatId();
+        }
     }
 
     if (settings.chat_completion_source === chat_completion_sources.NANOGPT) {
@@ -8636,6 +8642,11 @@ export function initOpenAI() {
     $('#openrouter_allow_fallbacks').on('input', function () {
         oai_settings.openrouter_allow_fallbacks = !!$(this).prop('checked');
         updateOpenRouterProvidersWarning('#openrouter_providers_chat');
+        saveSettingsDebounced();
+    });
+
+    $('#openrouter_sticky_routing').on('input', function () {
+        oai_settings.openrouter_sticky_routing = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 
