@@ -1,7 +1,7 @@
 import { localforage } from '../lib.js';
 import { characters, event_types, eventSource, main_api, nai_settings, online_status, this_chid } from '../script.js';
 import { power_user, registerDebugFunction } from './power-user.js';
-import { chat_completion_sources, model_list, oai_settings } from './openai.js';
+import { chat_completion_sources, getChatCompletionModel, isClaudeNewTokenizerModel, model_list, oai_settings } from './openai.js';
 import { groups, selected_group } from './group-chats.js';
 import { getStringHash } from './utils.js';
 import { kai_flags, kai_settings } from './kai-settings.js';
@@ -12,6 +12,7 @@ export { BYTES_PER_TOKEN as CHARACTERS_PER_TOKEN_RATIO };
 export const BYTES_PER_TOKEN = 3.35;
 export const TOKENIZER_WARNING_KEY = 'tokenizationWarningShown';
 export const TOKENIZER_SUPPORTED_KEY = 'tokenizationSupported';
+const CLAUDE_NEW_TOKENIZER_MULTIPLIER = 1.35;
 
 export const tokenizers = {
     NONE: 0,
@@ -566,6 +567,17 @@ function counterWrapperOpenAIAsync(text) {
     return countTokensOpenAIAsync(message, true);
 }
 
+/**
+ * Accounts for newer Claude models using a tokenizer unavailable locally.
+ * @param {number} tokenCount Token count from the legacy Claude tokenizer
+ * @returns {number} Adjusted token count
+ */
+function adjustClaudeTokenCount(tokenCount) {
+    return isClaudeNewTokenizerModel(getChatCompletionModel())
+        ? Math.ceil(tokenCount * CLAUDE_NEW_TOKENIZER_MULTIPLIER)
+        : tokenCount;
+}
+
 export function getTokenizerModel() {
     // OpenAI models always provide their own tokenizer
     if (oai_settings.chat_completion_source == chat_completion_sources.OPENAI) {
@@ -911,7 +923,7 @@ export function countTokensOpenAI(messages, full = false) {
 
     if (!full) token_count -= 2;
 
-    return token_count;
+    return adjustClaudeTokenCount(token_count);
 }
 
 /**
@@ -960,7 +972,7 @@ export async function countTokensOpenAIAsync(messages, full = false) {
 
     if (!full) token_count -= 2;
 
-    return token_count;
+    return adjustClaudeTokenCount(token_count);
 }
 
 /**

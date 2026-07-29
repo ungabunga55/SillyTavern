@@ -441,6 +441,24 @@ function isClaudeNoSamplingModel(model) {
 }
 
 /**
+ * Checks if a Claude model uses the tokenizer introduced after Opus 4.6.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if the newer tokenizer estimate should be used
+ */
+export function isClaudeNewTokenizerModel(model) {
+    const modelId = getClaudeModelId(model).split('/').pop();
+    const versionMatch = modelId.match(/^claude[-.][a-z]+-(\d+)(?:-(\d{1,2}))?(?:$|-)/);
+
+    if (!versionMatch) {
+        return /^claude[-.]mythos-preview(?:$|-)/.test(modelId);
+    }
+
+    const majorVersion = Number(versionMatch[1]);
+    const minorVersion = Number(versionMatch[2] || 0);
+    return majorVersion > 4 || (majorVersion === 4 && minorVersion > 6);
+}
+
+/**
  * Checks if a Claude model supports thinking mode.
  * @param {string} model Model identifier
  * @returns {boolean} True if thinking may be sent
