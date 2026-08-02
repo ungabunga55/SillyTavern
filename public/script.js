@@ -636,6 +636,21 @@ var kobold_horde_model = '';
 
 export let token;
 
+let tabSessionEnabled = false;
+let tabSessionInactive = false;
+let tabSessionGeneration = 0;
+let tabSessionChannel;
+const tabSessionId = createTabSessionId();
+const nativeFetch = window.fetch.bind(window);
+
+window.fetch = async (...args) => {
+    const response = await nativeFetch(...args);
+    if (isTabSessionRevoked(response)) {
+        deactivateTabSession();
+    }
+    return response;
+};
+
 
 /** The tag of the active character. (NOT the id) */
 export let active_character = '';
@@ -645,10 +660,18 @@ export let active_group = '';
 export const entitiesFilter = new FilterHelper(printCharactersDebounced);
 
 export function getRequestHeaders({ omitContentType = false } = {}) {
+    if (tabSessionInactive) {
+        throw new Error('This tab was deactivated by another SillyTavern session.');
+    }
+
     const headers = {
         'Content-Type': 'application/json',
         'X-CSRF-Token': token,
     };
+
+    if (tabSessionEnabled) {
+        headers['X-ST-Session-ID'] = tabSessionId;
+    }
 
     if (omitContentType) {
         delete headers['Content-Type'];
@@ -665,8 +688,152 @@ export function getSlideToggleOptions() {
 }
 
 $.ajaxPrefilter((options, originalOptions, xhr) => {
+    if (tabSessionInactive) {
+        throw new Error('This tab was deactivated by another SillyTavern session.');
+    }
     xhr.setRequestHeader('X-CSRF-Token', token);
+    if (tabSessionEnabled) {
+        xhr.setRequestHeader('X-ST-Session-ID', tabSessionId);
+    }
 });
+
+$(document).ajaxError((_event, xhr) => {
+    if (xhr.status === 409 && xhr.getResponseHeader('X-ST-Session-Revoked')) {
+        deactivateTabSession();
+    }
+});
+
+/**
+ * Generates an opaque ID for this page load.
+ * @returns {string} Page session ID
+ */
+function createTabSessionId() {
+    if (typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Checks whether an API response fenced this page session.
+ * @param {Response} response Fetch response
+ * @returns {boolean} Whether the page session was revoked
+ */
+function isTabSessionRevoked(response) {
+    return response.status === 409 && response.headers.get('X-ST-Session-Revoked') === '1';
+}
+
+function deactivateTabSession() {
+    if (tabSessionInactive) {
+        return;
+    }
+
+    tabSessionInactive = true;
+    Popup.show.text(
+        t`Session inactive`,
+        t`This tab has been deactivated to prevent data loss. SillyTavern is in use in another tab or on another device.`,
+        {
+            okButton: t`Use here`,
+            allowEscapeClose: false,
+            onClose: () => {
+                try {
+                    sessionStorage.setItem('tabSessionReclaim', '1');
+                } catch {
+                    // A normal reload still allows the user to confirm takeover again.
+                }
+                window.location.reload();
+            },
+        },
+    );
+}
+
+function initializeTabSessionChannel() {
+    if (!('BroadcastChannel' in window)) {
+        return;
+    }
+
+    try {
+        tabSessionChannel = new BroadcastChannel('st-tab-session');
+        tabSessionChannel.onmessage = ({ data }) => {
+            if (data?.type !== 'claimed' || data.sessionId === tabSessionId) {
+                return;
+            }
+
+            if (Number.isInteger(data.generation) && data.generation > tabSessionGeneration) {
+                deactivateTabSession();
+            }
+        };
+    } catch (error) {
+        console.warn('Could not initialize tab session notifications', error);
+    }
+}
+
+/**
+ * Claims this page as the active browser session.
+ * @returns {Promise<boolean>} Whether page initialization may continue
+ */
+async function claimTabSession() {
+    let reclaiming = false;
+    try {
+        reclaiming = sessionStorage.getItem('tabSessionReclaim') !== null;
+        sessionStorage.removeItem('tabSessionReclaim');
+    } catch {
+        // Storage may be unavailable in hardened browser configurations.
+    }
+
+    initializeTabSessionChannel();
+    let result = await requestTabSessionClaim(reclaiming);
+
+    if (result.conflict) {
+        const takeoverResult = await Popup.show.confirm(
+            t`Session conflict`,
+            t`SillyTavern is already in use in another tab or on another device. Use it here and deactivate the other session?`,
+            { okButton: t`Use here`, cancelButton: t`Leave this tab inactive` },
+        );
+        if (takeoverResult !== POPUP_RESULT.AFFIRMATIVE) {
+            deactivateTabSession();
+            return false;
+        }
+
+        result = await requestTabSessionClaim(true);
+    }
+
+    if (result.revoked || tabSessionInactive) {
+        deactivateTabSession();
+        return false;
+    }
+
+    tabSessionGeneration = result.generation;
+    tabSessionChannel?.postMessage({ type: 'claimed', sessionId: tabSessionId, generation: tabSessionGeneration });
+    setInterval(() => !tabSessionInactive && pingServer(), 10 * 1000);
+    return true;
+}
+
+/**
+ * Requests a normal or forced page-session claim.
+ * @param {boolean} force Whether to supersede the current page session
+ * @returns {Promise<{conflict?: boolean, revoked?: boolean, generation: number}>} Claim result
+ */
+async function requestTabSessionClaim(force) {
+    const response = await fetch('/api/session/claim', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': token,
+            'X-ST-Session-ID': tabSessionId,
+        },
+        body: JSON.stringify({ force }),
+    });
+    const result = await response.json();
+
+    if (!response.ok && !result.conflict && !result.revoked) {
+        throw new Error(`Tab session claim failed with status ${response.status}`);
+    }
+
+    return result;
+}
 
 /**
  * Pings the STserver to check if it is reachable.
@@ -696,9 +863,22 @@ async function firstLoadInit() {
         const tokenResponse = await fetch('/csrf-token');
         const tokenData = await tokenResponse.json();
         token = tokenData.token;
+        tabSessionEnabled = tokenData.singleSession === true;
     } catch {
         toastr.error(t`Couldn't get CSRF token. Please refresh the page.`, t`Error`, { timeOut: 0, extendedTimeOut: 0, preventDuplicates: true });
         throw new Error('Initialization failed');
+    }
+
+    if (tabSessionEnabled) {
+        try {
+            if (!await claimTabSession()) {
+                return;
+            }
+        } catch (error) {
+            console.error('Could not claim the tab session', error);
+            toastr.error(t`Couldn't claim this browser session. Please refresh the page.`, t`Error`, { timeOut: 0, extendedTimeOut: 0, preventDuplicates: true });
+            throw new Error('Initialization failed');
+        }
     }
 
     const initLoaderOverlay = loader.createOverlay();

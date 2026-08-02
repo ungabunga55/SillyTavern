@@ -53,6 +53,7 @@ import cacheBuster from './middleware/cacheBuster.js';
 import corsProxyMiddleware from './middleware/corsProxy.js';
 import hostWhitelistMiddleware from './middleware/hostWhitelist.js';
 import userCssMiddleware from './middleware/userCss.js';
+import { claimTabSession, singleSessionEnabled, tabSessionMiddleware } from './middleware/tabSession.js';
 import {
     getVersion,
     color,
@@ -190,8 +191,10 @@ if (!cliArgs.disableCsrf) {
     });
 
     app.get('/csrf-token', (req, res) => {
+        res.set('Cache-Control', 'no-store');
         res.json({
             'token': csrfSyncProtection.generateToken(req),
+            'singleSession': singleSessionEnabled,
         });
     });
 
@@ -201,10 +204,12 @@ if (!cliArgs.disableCsrf) {
 
     app.use(csrfSyncProtection.csrfSynchronisedProtection);
 } else {
-    console.warn('\nCSRF protection is disabled. This will make your server vulnerable to CSRF attacks.\n');
+    console.warn('\nCSRF protection is disabled. This will make your server vulnerable to CSRF attacks. Single-session enforcement is also disabled.\n');
     app.get('/csrf-token', (req, res) => {
+        res.set('Cache-Control', 'no-store');
         res.json({
             'token': 'disabled',
+            'singleSession': false,
         });
     });
 }
@@ -246,6 +251,32 @@ app.use('/api/users', usersPublicRouter);
 
 // Everything below this line requires authentication
 app.use(requireLoginMiddleware);
+if (!cliArgs.disableCsrf && singleSessionEnabled) {
+    app.post('/api/session/claim', async (request, response) => {
+        const handle = request.user?.profile?.handle;
+        const sessionId = request.headers['x-st-session-id']?.toString();
+        const force = request.body?.force === true;
+
+        if (!handle || !sessionId || !/^[a-zA-Z0-9_-]{16,128}$/.test(sessionId)) {
+            return response.status(400).send({ error: 'invalid-tab-session' });
+        }
+
+        const result = await claimTabSession(handle, sessionId, force);
+        response.set('Cache-Control', 'no-store');
+
+        if (result.revoked) {
+            response.set('X-ST-Session-Revoked', '1');
+            return response.status(409).send(result);
+        }
+
+        if (result.conflict) {
+            return response.status(409).send(result);
+        }
+
+        return response.send(result);
+    });
+    app.use('/api', tabSessionMiddleware);
+}
 app.post('/api/ping', (request, response) => {
     if (request.query.extend && request.session) {
         request.session.touch = Date.now();

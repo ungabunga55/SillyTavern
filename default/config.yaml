@@ -228,6 +228,11 @@ backups:
     # Interval in milliseconds to throttle chat backups per user
     throttleInterval: 10000
 
+# Allow only one active SillyTavern tab or device per user at a time.
+# Older sessions are deactivated to prevent stale state from overwriting newer data.
+# Has no effect when CSRF protection is disabled.
+singleSession: true
+
 # THUMBNAILING CONFIGURATION
 thumbnails:
   # Enable thumbnail generation
