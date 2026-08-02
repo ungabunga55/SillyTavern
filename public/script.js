@@ -277,6 +277,7 @@ import { initDataMaid } from './scripts/data-maid.js';
 import { clearItemizedPrompts, deleteItemizedPromptForMessage, deleteItemizedPrompts, findItemizedPromptSet, initItemizedPrompts, itemizedParams, itemizedPrompts, loadItemizedPrompts, promptItemize, replaceItemizedPromptText, saveItemizedPrompts, swapItemizedPrompts } from './scripts/itemized-prompts.js';
 import { getSystemMessageByType, initSystemMessages, SAFETY_CHAT, sendSystemMessage, system_message_types, system_messages } from './scripts/system-messages.js';
 import { event_types, eventSource } from './scripts/events.js';
+import { EventEmitter } from './lib/eventemitter.js';
 import { initAccessibility } from './scripts/a11y.js';
 import { applyStreamFadeIn } from './scripts/util/stream-fadein.js';
 import { initDomHandlers } from './scripts/dom-handlers.js';
@@ -912,10 +913,11 @@ async function firstLoadInit() {
     addDOMPurifyHooks();
     reloadMarkdownProcessor();
     applyBrowserFixes();
-    await getClientVersion();
-    await initSecrets();
-    await readSecretState();
-    await initLocales();
+    await Promise.all([
+        getClientVersion(),
+        initSecrets().then(readSecretState),
+        initLocales(),
+    ]);
     initChatUtilities();
     initDefaultSlashCommands();
     initTextGenModels();
@@ -924,11 +926,14 @@ async function firstLoadInit() {
     initKoboldSettings();
     initNovelAISettings();
     initSystemPrompts();
-    await initExtensions();
-    initExtensionSlashCommands();
-    ToolManager.initToolSlashCommands();
-    await initPresetManager();
-    await initSystemMessages();
+    await Promise.all([
+        initExtensions().then(() => {
+            initExtensionSlashCommands();
+            ToolManager.initToolSlashCommands();
+        }),
+        initPresetManager(),
+        initSystemMessages(),
+    ]);
     await getSettings(initLoaderHandle);
     await checkOpenRouterAuth();
     initKeyboard();
@@ -6902,7 +6907,15 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     const generationFinished = new Date();
     if (type === 'swipe') {
         oldMessage = lastMessage.mes;
-        lastMessage.swipes.length++;
+        ensureSwipes(lastMessage);
+        const nextSwipeId = lastMessage.swipes.length;
+        lastMessage.swipes.push('');
+        lastMessage.swipe_info[nextSwipeId] = {
+            send_date: lastMessage.send_date,
+            gen_started: lastMessage.gen_started,
+            gen_finished: lastMessage.gen_finished,
+            extra: {},
+        };
         if (lastMessage.swipe_id === lastMessage.swipes.length - 1) {
             lastMessage.title = title;
             lastMessage.mes = getMessage;
@@ -11263,6 +11276,7 @@ function addDebugFunctions() {
     });
     registerDebugFunction('toggleEventTracing', 'Toggle event tracing', 'Useful to see what triggered a certain event.', () => {
         localStorage.setItem('eventTracing', localStorage.getItem('eventTracing') === 'true' ? 'false' : 'true');
+        EventEmitter.refreshEventTracing();
         toastr.info('Event tracing is now ' + (localStorage.getItem('eventTracing') === 'true' ? 'enabled' : 'disabled'));
     });
 

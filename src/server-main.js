@@ -63,6 +63,8 @@ import {
     setupLogLevel,
     setWindowTitle,
     getConfigValue,
+    stopAcceptingFileOperations,
+    waitForPendingWrites,
 } from './util.js';
 import { UPLOADS_DIRECTORY } from './constants.js';
 
@@ -70,7 +72,8 @@ import { UPLOADS_DIRECTORY } from './constants.js';
 import { router as usersPublicRouter } from './endpoints/users-public.js';
 import { init as statsInit, onExit as statsOnExit } from './endpoints/stats.js';
 import { checkForNewContent } from './endpoints/content-manager.js';
-import { init as settingsInit } from './endpoints/settings.js';
+import { flushSettingsBackups, init as settingsInit } from './endpoints/settings.js';
+import { flushChatBackups } from './endpoints/chats.js';
 import { redirectDeprecatedEndpoints, ServerStartup, setupPrivateEndpoints } from './server-startup.js';
 import { diskCache } from './endpoints/characters.js';
 import { migrateFlatSecrets } from './endpoints/secrets.js';
@@ -352,6 +355,10 @@ async function preSetupTasks() {
         if (typeof cleanupPlugins === 'function') {
             await cleanupPlugins();
         }
+        flushChatBackups();
+        await flushSettingsBackups();
+        stopAcceptingFileOperations();
+        await waitForPendingWrites();
         diskCache.dispose();
         setWindowTitle(consoleTitle);
         process.exit();

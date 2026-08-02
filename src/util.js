@@ -20,7 +20,7 @@ import chalk from 'chalk';
 import bytes from 'bytes';
 import { LOG_LEVELS, CHAT_COMPLETION_SOURCES, MEDIA_REQUEST_TYPE } from './constants.js';
 import { serverDirectory } from './server-directory.js';
-import { sync as writeFileAtomicSync } from 'write-file-atomic';
+import writeFileAtomic, { sync as writeFileAtomicSync } from 'write-file-atomic';
 import { isFirefox } from './express-common.js';
 
 /**
@@ -642,10 +642,17 @@ export function generateTimestamp() {
 export function removeOldBackups(directory, prefix, limit = null) {
     const MAX_BACKUPS = limit ?? Number(getConfigValue('backups.common.numberOfBackups', 50, 'number'));
 
-    let files = fs.readdirSync(directory).filter(f => f.startsWith(prefix));
+    const timestampPattern = /_(\d{8}-\d{6})(?=\.[^.]+$)/;
+    let files = fs.readdirSync(directory, { withFileTypes: true })
+        .filter(entry => entry.isFile() && entry.name.startsWith(prefix) && timestampPattern.test(entry.name))
+        .map(entry => entry.name);
     if (files.length > MAX_BACKUPS) {
+        files.sort((a, b) => {
+            const timestampA = a.match(timestampPattern)?.[1] ?? '';
+            const timestampB = b.match(timestampPattern)?.[1] ?? '';
+            return timestampA.localeCompare(timestampB);
+        });
         files = files.map(f => path.join(directory, f));
-        files.sort((a, b) => fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs);
 
         while (files.length > MAX_BACKUPS) {
             const oldest = files.shift();
@@ -1495,6 +1502,99 @@ export function tryWriteFileSync(filePath, data) {
         fs.mkdirSync(directory, { recursive: true });
     }
     writeFileAtomicSync(filePath, data, 'utf8');
+}
+
+const MAX_CONCURRENT_FILE_OPERATIONS = 4;
+/** @type {Map<string, Promise<unknown>>} */
+const pendingFileOperations = new Map();
+/** @type {Array<() => void>} */
+const fileOperationWaiters = [];
+let activeFileOperations = 0;
+let acceptingFileOperations = true;
+
+async function acquireFileOperationSlot() {
+    if (activeFileOperations < MAX_CONCURRENT_FILE_OPERATIONS) {
+        activeFileOperations++;
+        return;
+    }
+    await new Promise(resolve => fileOperationWaiters.push(resolve));
+}
+
+function releaseFileOperationSlot() {
+    const next = fileOperationWaiters.shift();
+    if (next) {
+        next();
+    } else {
+        activeFileOperations--;
+    }
+}
+
+/**
+ * Runs a file mutation after all earlier mutations touching the same paths.
+ * Disjoint paths can still run concurrently, up to a small global limit.
+ * @template T
+ * @param {string|string[]} filePaths Paths affected by the operation
+ * @param {() => Promise<T>} operation File mutation
+ * @returns {Promise<T>}
+ */
+export function queueFileOperation(filePaths, operation) {
+    if (!acceptingFileOperations) {
+        return Promise.reject(new Error('File operations are unavailable while the server is shutting down.'));
+    }
+
+    const queueKeys = [...new Set((Array.isArray(filePaths) ? filePaths : [filePaths]).map(filePath => path.resolve(filePath)))].sort();
+    const previous = queueKeys.map(queueKey => pendingFileOperations.get(queueKey) ?? Promise.resolve());
+    const current = Promise.all(previous.map(promise => promise.catch(() => { }))).then(async () => {
+        await acquireFileOperationSlot();
+        try {
+            return await operation();
+        } finally {
+            releaseFileOperationSlot();
+        }
+    });
+
+    for (const queueKey of queueKeys) {
+        pendingFileOperations.set(queueKey, current);
+    }
+    const cleanup = () => {
+        for (const queueKey of queueKeys) {
+            if (pendingFileOperations.get(queueKey) === current) {
+                pendingFileOperations.delete(queueKey);
+            }
+        }
+    };
+    current.then(cleanup, cleanup);
+    return current;
+}
+
+export function stopAcceptingFileOperations() {
+    acceptingFileOperations = false;
+}
+
+/**
+ * Atomically writes a file without blocking the event loop. Operations for the
+ * same path run in admission order, including an optional pre-write check.
+ * @param {string} filePath File path to write
+ * @param {string|Buffer} data File contents
+ * @param {(() => Promise<void>)|null} beforeWrite Check to run inside the path queue
+ * @returns {Promise<void>}
+ */
+export function tryWriteFile(filePath, data, beforeWrite = null) {
+    return queueFileOperation(filePath, async () => {
+        if (beforeWrite) {
+            await beforeWrite();
+        }
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await writeFileAtomic(filePath, data, 'utf8');
+    });
+}
+
+/**
+ * Waits until all currently queued file mutations have settled.
+ * @returns {Promise<void>}
+ */
+export async function waitForPendingWrites() {
+    await Promise.allSettled([...new Set(pendingFileOperations.values())]);
 }
 
 /**

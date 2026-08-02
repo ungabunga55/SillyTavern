@@ -9,7 +9,7 @@ import { RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import { getUserAvatar, toKey, getPasswordHash, getPasswordSalt, createBackupArchive, ensurePublicDirectoriesExist, toAvatarKey, getAccountVersion } from '../users.js';
 import { SETTINGS_FILE } from '../constants.js';
 import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
-import { color, Cache, getConfigValue } from '../util.js';
+import { color, Cache, getConfigValue, queueFileOperation } from '../util.js';
 import { getIpAddress, retryAfter } from '../express-common.js';
 
 const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
@@ -191,8 +191,10 @@ router.post('/reset-settings', async (request, response) => {
         }
 
         const pathToFile = path.join(request.user.directories.root, SETTINGS_FILE);
-        await fsPromises.rm(pathToFile, { force: true });
-        await checkForNewContent([request.user.directories], [CONTENT_TYPES.SETTINGS]);
+        await queueFileOperation(pathToFile, async () => {
+            await fsPromises.rm(pathToFile, { force: true });
+            await checkForNewContent([request.user.directories], [CONTENT_TYPES.SETTINGS]);
+        });
 
         return response.sendStatus(204);
     } catch (error) {

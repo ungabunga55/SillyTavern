@@ -24,6 +24,28 @@ if (typeof Array.prototype.indexOf === 'function') {
 
 
 /* Polyfill EventEmitter. */
+
+// Event emission is hot enough that synchronous storage reads are noticeable.
+let eventTracingEnabled = false;
+
+function refreshEventTracing() {
+    try {
+        eventTracingEnabled = localStorage.getItem('eventTracing') === 'true';
+    } catch {
+        eventTracingEnabled = false;
+    }
+}
+
+refreshEventTracing();
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('storage', event => {
+        if (event.key === 'eventTracing' || event.key === null) {
+            refreshEventTracing();
+        }
+    });
+}
+
 /**
  * Creates an event emitter.
  * @param {string[]} autoFireAfterEmit Auto-fire event names
@@ -33,6 +55,8 @@ var EventEmitter = function (autoFireAfterEmit = []) {
     this.autoFireLastArgs = new Map();
     this.autoFireAfterEmit = new Set(autoFireAfterEmit);
 };
+
+EventEmitter.refreshEventTracing = refreshEventTracing;
 
 /**
  * Adds a listener to an event.
@@ -129,7 +153,7 @@ EventEmitter.prototype.removeListener = function (event, listener) {
  */
 EventEmitter.prototype.emit = async function (event) {
     let args = [].slice.call(arguments, 1);
-    if (localStorage.getItem('eventTracing') === 'true') {
+    if (eventTracingEnabled) {
         console.trace('Event emitted: ' + event, args);
     } else {
         console.debug('Event emitted: ' + event);
@@ -159,7 +183,7 @@ EventEmitter.prototype.emit = async function (event) {
 
 EventEmitter.prototype.emitAndWait = function (event) {
     let args = [].slice.call(arguments, 1);
-    if (localStorage.getItem('eventTracing') === 'true') {
+    if (eventTracingEnabled) {
         console.trace('Event emitted: ' + event, args);
     } else {
         console.debug('Event emitted: ' + event);

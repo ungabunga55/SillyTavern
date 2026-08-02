@@ -3159,6 +3159,7 @@ jQuery(() => {
         //this will still break if the zoom level causes mobile styles to come into play.
         const scaleY = parseFloat(Number(window.innerHeight / coreTruthWinHeight).toFixed(4));
         const scaleX = parseFloat(Number(window.innerWidth / coreTruthWinWidth).toFixed(4));
+        let didScaleMovingUI = false;
 
         if (Object.keys(power_user.movingUIState).length > 0) {
             for (var elmntName of Object.keys(power_user.movingUIState)) {
@@ -3190,6 +3191,7 @@ jQuery(() => {
                         power_user.movingUIState[elmntName].bottom = newBottom;
                         power_user.movingUIState[elmntName].left = newLeft;
                         power_user.movingUIState[elmntName].right = newRight;
+                        didScaleMovingUI = true;
                     } else {
                         console.log(`skipping ${elmntName} because it doesn't exist in the DOM`);
                     }
@@ -3200,7 +3202,9 @@ jQuery(() => {
         } else {
             console.debug('aborting MUI reset', Object.keys(power_user.movingUIState).length);
         }
-        saveSettingsDebounced();
+        if (didScaleMovingUI) {
+            saveSettingsDebounced();
+        }
         coreTruthWinWidth = window.innerWidth;
         coreTruthWinHeight = window.innerHeight;
     });

@@ -1,5 +1,7 @@
 ////////////////// LOCAL STORAGE HANDLING /////////////////////
 
+import { EventEmitter } from '../lib/eventemitter.js';
+
 /**
  * @deprecated THIS FUNCTION IS OBSOLETE. DO NOT USE
  */
@@ -36,6 +38,10 @@ export function CheckLocal() {
 /**
  * @deprecated THIS FUNCTION IS OBSOLETE. DO NOT USE
  */
-export function ClearLocal() { localStorage.clear(); console.log('Removed All Local Storage'); }
+export function ClearLocal() {
+    localStorage.clear();
+    EventEmitter.refreshEventTracing();
+    console.log('Removed All Local Storage');
+}
 
 /////////////////////////////////////////////////////////////////////////
