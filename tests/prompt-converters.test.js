@@ -283,6 +283,7 @@ describe('calculateGoogleBudgetTokens', () => {
 
 describe('isGeminiNoSamplingModel', () => {
     test.each([
+        'gemini-3.7-flash',
         'gemini-3.6-flash',
         'gemini-3.6-flash-preview',
         'gemini-3.5-flash-lite',

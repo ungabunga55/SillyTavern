@@ -109,6 +109,7 @@ const OPENAI_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern OpenAI prompt cache key v1
 const FIREWORKS_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern Fireworks prompt cache affinity v1';
 const XAI_PROMPT_CACHE_HMAC_CONTEXT = 'SillyTavern xAI prompt cache key v1';
 const FIREWORKS_SERVERLESS_MODELS = [
+    { id: 'accounts/fireworks/models/glm-5p3', display_name: 'GLM 5.3', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/models/glm-5p2', display_name: 'GLM 5.2', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/models/deepseek-v4-pro', display_name: 'DeepSeek-V4-Pro', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/models/minimax-m2p7', display_name: 'MiniMax M2.7', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 196608 },
@@ -124,6 +125,7 @@ const FIREWORKS_SERVERLESS_MODELS = [
     { id: 'accounts/fireworks/models/gpt-oss-20b', display_name: 'OpenAI gpt-oss-20b', supports_chat: true, supports_tools: false, supports_image_in: false, supports_serverless: true, context_length: 131072 },
     { id: 'accounts/fireworks/routers/kimi-k2p7-code-fast', display_name: 'Kimi K2.7 Code Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
     { id: 'accounts/fireworks/routers/kimi-k2p6-fast', display_name: 'Kimi K2.6 Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
+    { id: 'accounts/fireworks/routers/glm-5p3-fast', display_name: 'GLM 5.3 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/routers/glm-5p2-fast', display_name: 'GLM 5.2 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/routers/glm-5p1-fast', display_name: 'GLM 5.1 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 202752 },
 ];
@@ -155,7 +157,7 @@ const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
 const MOONSHOT_KIMI_K3_MODEL_REGEX = /^kimi-k3(?:$|[-.])/;
-const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh']);
 let openaiPromptCacheHmacKey;
 let fireworksPromptCacheHmacKey;
 let xaiPromptCacheHmacKey;
@@ -437,7 +439,7 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
             case 'deepseek':
                 return effort === 'max' ? 'max' : 'high';
             case 'zai':
-                if (!/(?:^|\/)glm-5\.2(?:$|\b)/.test(modelId)) {
+                if (!/(?:^|\/)glm-5\.[23](?:$|\b)/.test(modelId)) {
                     return undefined;
                 }
                 return effort === 'min' ? 'minimal' : effort;
@@ -731,7 +733,7 @@ function sanitizeFireworksRequestBody(requestBody, request) {
 
         switch (family) {
             case 'zai':
-                if (nativeModel === 'glm-5p2') {
+                if (['glm-5p2', 'glm-5p3'].includes(nativeModel)) {
                     if (effort === 'min') return 'none';
                     if (effort === 'xhigh') return 'max';
                     return effort;
@@ -972,7 +974,7 @@ function getXaiPromptCacheKey(request) {
  */
 function getFireworksModelFamily(modelId) {
     const nativeModel = modelId.split('/').pop() || modelId;
-    if (/^glm-5p[12]$/.test(nativeModel)) return 'zai';
+    if (/^glm-5p[123]$/.test(nativeModel)) return 'zai';
     if (/^deepseek-v4-(pro|flash)$/.test(nativeModel)) return 'deepseek';
     if (nativeModel === 'kimi-k2p7-code') return 'moonshot';
     if (/^qwen3p\d-(?:plus|coder)$/.test(nativeModel)) return 'qwen';
@@ -4199,7 +4201,7 @@ router.post('/generate', async function (request, response) {
                     type: request.body.include_reasoning ? 'enabled' : 'disabled',
                 },
             };
-            if (request.body.include_reasoning && request.body.model === 'glm-5.2' && request.body.reasoning_effort) {
+            if (request.body.include_reasoning && ['glm-5.2', 'glm-5.3'].includes(request.body.model) && request.body.reasoning_effort) {
                 bodyParams['reasoning_effort'] = request.body.reasoning_effort;
             }
             if (request.body.json_schema) {

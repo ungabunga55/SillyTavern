@@ -2277,8 +2277,11 @@
                                             <div class="toggle-description justifyLeft marginBot5" data-source="openai,agentrouter,custom,aimlapi,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
                                                 OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.
                                             </div>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="xai" data-i18n="xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.">
-                                                xAI Grok 4.3 supports none, low, medium, and high. Minimum disables reasoning; Auto uses the provider default.
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="xai">
+                                                xAI Grok 4.3 supports none, low, medium, and high. Grok 4.5 and 4.6 additionally support extra high; Maximum is sent as extra high. Minimum disables reasoning; Auto uses the provider default.
+                                            </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="deepseek">
+                                                DeepSeek supports low, high, and maximum reasoning effort. Minimum is sent as low; Medium is sent as high; Extra High is sent as maximum; Auto uses the provider default.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="nanogpt" data-i18n="NanoGPT supports minimal, low, medium, high, and xhigh reasoning efforts. Auto uses the provider default; unchecking Request model reasoning hides reasoning output with reasoning.exclude.">
                                                 NanoGPT supports minimal, low, medium, high, and xhigh reasoning efforts. Auto uses the provider default; unchecking Request model reasoning hides reasoning output with reasoning.exclude.
@@ -2302,8 +2305,8 @@
                                             <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.">
                                                 Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.
                                             </div>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="zai" data-i18n="GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.">
-                                                GLM-5.2 supports high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="zai">
+                                                GLM-5.2 and GLM-5.3 support high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="nvidia">
                                                 NVIDIA DeepSeek V4 Pro supports none, high, and max reasoning effort. Auto uses the provider default; low and medium are treated as high; Minimum disables reasoning. Other NVIDIA models do not receive this parameter.
@@ -3539,6 +3542,9 @@
                             <div>
                                 <h4 data-i18n="Google Model">Google Model</h4>
                                 <select id="model_google_select">
+                                    <optgroup label="Gemini 3.7">
+                                        <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+                                    </optgroup>
                                     <optgroup label="Gemini 3.6">
                                         <option value="gemini-3.6-flash">gemini-3.6-flash</option>
                                     </optgroup>
@@ -3726,6 +3732,9 @@
                                 <h4 data-i18n="Google Model">Google Model</h4>
                                 <select id="model_vertexai_select">
                                     <!-- data-mode="full" is for models that require a service account -->
+                                    <optgroup label="Gemini 3.7">
+                                        <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+                                    </optgroup>
                                     <optgroup label="Gemini 3.6">
                                         <option value="gemini-3.6-flash">gemini-3.6-flash</option>
                                     </optgroup>
@@ -3831,6 +3840,7 @@
                             </div>
                             <h4>NVIDIA Model</h4>
                             <select id="model_nvidia_select">
+                                <option value="z-ai/glm-5.3">z-ai/glm-5.3</option>
                                 <option value="z-ai/glm-5.2">z-ai/glm-5.2</option>
                             </select>
                         </div>
@@ -4355,6 +4365,7 @@
                             <select id="model_zai_select">
                                 <option value="glm-5-turbo">glm-5-turbo</option>
                                 <option value="glm-5v-turbo">glm-5v-turbo</option>
+                                <option value="glm-5.3">glm-5.3</option>
                                 <option value="glm-5.2">glm-5.2</option>
                                 <option value="glm-5.1">glm-5.1</option>
                                 <option value="glm-5">glm-5</option>

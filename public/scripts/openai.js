@@ -304,7 +304,16 @@ const claudeLimitedSamplingModelRegexes = [
  * @returns {boolean} True if reasoning_effort can be sent
  */
 function isXaiReasoningEffortModel(model) {
-    return /^grok-4\.(?:3|5)(?:\b|-)/.test(String(model || ''));
+    return /^grok-4\.(?:3|5|6)(?:\b|-)/.test(String(model || ''));
+}
+
+/**
+ * Checks if an xAI model supports xhigh reasoning effort.
+ * @param {string} model Model identifier
+ * @returns {boolean} True if xhigh can be sent
+ */
+function isXaiXHighReasoningEffortModel(model) {
+    return /^grok-4\.(?:5|6)(?:\b|-)/.test(String(model || ''));
 }
 
 /**
@@ -3404,6 +3413,10 @@ function getReasoningEffort(settings = null, model = null) {
             switch (settings.reasoning_effort) {
                 case reasoning_effort_types.auto:
                     return undefined;
+                case reasoning_effort_types.min:
+                case reasoning_effort_types.low:
+                    return reasoning_effort_types.low;
+                case reasoning_effort_types.xhigh:
                 case reasoning_effort_types.max:
                     return reasoning_effort_types.max;
                 default:
@@ -3444,7 +3457,7 @@ function getReasoningEffort(settings = null, model = null) {
                     return 'none';
                 case reasoning_effort_types.xhigh:
                 case reasoning_effort_types.max:
-                    return reasoning_effort_types.high;
+                    return isXaiXHighReasoningEffortModel(model) ? reasoning_effort_types.xhigh : reasoning_effort_types.high;
                 default:
                     return settings.reasoning_effort;
             }
@@ -3938,7 +3951,7 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_p = generate_data.top_p || 0.01;
         generate_data.stop = getCustomStoppingStrings(1);
         generate_data.zai_endpoint = settings.zai_endpoint || ZAI_ENDPOINT.COMMON;
-        if (model !== 'glm-5.2') {
+        if (!['glm-5.2', 'glm-5.3'].includes(model)) {
             delete generate_data.reasoning_effort;
         }
         delete generate_data.presence_penalty;
@@ -3956,7 +3969,7 @@ export async function createGenerationParameters(settings, model, type, messages
     if (settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
         const fireworksModel = String(model || '').toLowerCase();
         const fireworksNativeModel = fireworksModel.split('/').pop() || fireworksModel;
-        const isFireworksZaiModel = /^glm-5p[12]$/.test(fireworksNativeModel);
+        const isFireworksZaiModel = /^glm-5p[123]$/.test(fireworksNativeModel);
         const isFireworksDeepSeekModel = /^deepseek-v4-(pro|flash)$/.test(fireworksNativeModel);
         const isFireworksMoonshotModel = fireworksNativeModel === 'kimi-k2p7-code';
         const isFireworksMiniMaxModel = /^minimax-(m2p7|m3)$/.test(fireworksNativeModel);
@@ -6683,6 +6696,7 @@ function getZaiMaxContext(model, isUnlocked) {
     }
 
     const contextMap = {
+        'glm-5.3': max_1mil,
         'glm-5.2': max_1mil,
         'glm-5.1': max_200k,
         'glm-5-turbo': max_200k,
