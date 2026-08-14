@@ -251,6 +251,7 @@ const openrouter_middleout_types = {
 };
 
 const nanogpt_sort_models = new Set(['favorites', 'mostused']);
+const openrouter_model_sorts = new Set(['most-popular', 'newest', 'top-weekly']);
 
 export const reasoning_effort_types = {
     auto: 'auto',
@@ -576,6 +577,7 @@ export const settingsToUpdate = {
     agentrouter_model: ['#model_agentrouter_select', 'agentrouter_model', false, true],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
+    openrouter_model_sort: ['#openrouter_model_sort', 'openrouter_model_sort', false, true],
     openrouter_site_url: ['#openrouter_site_url', 'openrouter_site_url', false, true],
     openrouter_app_name: ['#openrouter_app_name', 'openrouter_app_name', false, true],
     openrouter_sticky_routing: ['#openrouter_sticky_routing', 'openrouter_sticky_routing', true, true],
@@ -799,6 +801,7 @@ const default_settings = {
     custom_exclude_body: '',
     custom_include_headers: '',
     openrouter_model: openrouter_website_model,
+    openrouter_model_sort: '',
     requesty_model: 'openai/gpt-4o-mini',
     openrouter_use_fallback: false,
     openrouter_providers: [],
@@ -2473,14 +2476,21 @@ function getAimlapiModelTemplate(option) {
 
 function saveModelList(data) {
     model_list = data.map((model) => ({ ...model }));
-    model_list.sort((a, b) => a?.id && b?.id && a.id.localeCompare(b.id));
+    const usesOpenRouterServerSort = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        && openrouter_model_sorts.has(oai_settings.openrouter_model_sort);
+
+    if (!usesOpenRouterServerSort) {
+        model_list.sort((a, b) => a?.id && b?.id && a.id.localeCompare(b.id));
+    }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER) {
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.OPENROUTER);
+        if (!usesOpenRouterServerSort) {
+            model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.OPENROUTER);
+        }
         $('#model_openrouter_select').empty();
         $('#model_openrouter_select').append($('<option>', { value: openrouter_website_model, text: t`Use OpenRouter website setting` }));
 
-        if (oai_settings.group_models) {
+        if (oai_settings.group_models && !usesOpenRouterServerSort) {
             groupModelsByVendor(model_list, chat_completion_sources.OPENROUTER).forEach((models, vendor) => {
                 const optgroup = $('<optgroup>').attr('label', vendor);
                 models.forEach((model) => {
@@ -5951,6 +5961,7 @@ async function getStatusOpen() {
     if (oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
         data.openrouter_site_url = oai_settings.openrouter_site_url;
         data.openrouter_app_name = oai_settings.openrouter_app_name;
+        data.openrouter_model_sort = oai_settings.openrouter_model_sort;
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
@@ -7766,9 +7777,13 @@ function toggleChatCompletionForms() {
 function updateModelSortingControls() {
     const isNanoGpt = oai_settings.chat_completion_source === chat_completion_sources.NANOGPT;
     const isNvidia = oai_settings.chat_completion_source === chat_completion_sources.NVIDIA;
+    const usesOpenRouterServerSort = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        && openrouter_model_sorts.has(oai_settings.openrouter_model_sort);
     const $sortModels = $('#cc_sort_models');
     const $nvidiaUnsupportedSorts = $sortModels.find('option[value="pricing.prompt"], option[value="pricing.completion"], option[value="context_length"]');
 
+    $sortModels.prop('disabled', usesOpenRouterServerSort);
+    $('#cc_group_models').prop('disabled', usesOpenRouterServerSort);
     $sortModels.find('option[data-source="nanogpt"]').prop('hidden', !isNanoGpt).toggle(isNanoGpt);
     $nvidiaUnsupportedSorts.prop('hidden', isNvidia).toggle(!isNvidia);
 
@@ -9086,6 +9101,14 @@ export function initOpenAI() {
 
     $('#cc_sort_models').on('input', async () => {
         oai_settings.sort_models = $('#cc_sort_models').val().toString();
+        reconnectOpenAi();
+        saveSettingsDebounced();
+    });
+
+    $('#openrouter_model_sort').on('input', () => {
+        oai_settings.openrouter_model_sort = String($('#openrouter_model_sort').val() || '');
+        updateModelSortingControls();
+        cancelStatusCheck('Canceled because OpenRouter model sorting changed');
         reconnectOpenAi();
         saveSettingsDebounced();
     });

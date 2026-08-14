@@ -1,5 +1,6 @@
 import {
     abortStatusCheck,
+    cancelStatusCheck,
     eventSource,
     event_types,
     getCurrentChatId,
@@ -212,6 +213,7 @@ export const textgenerationwebui_settings = {
     infermaticai_model: '',
     ollama_model: '',
     openrouter_model: 'openrouter/auto',
+    openrouter_model_sort: '',
     openrouter_site_url: 'https://sillytavern.app',
     openrouter_app_name: 'SillyTavern',
     openrouter_sticky_routing: false,
@@ -598,6 +600,7 @@ export async function loadTextGenSettings(data, loadedSettings) {
     }
 
     $('#textgen_type').val(textgenerationwebui_settings.type);
+    $('#openrouter_model_sort_textgenerationwebui').val(textgenerationwebui_settings.openrouter_model_sort);
     $('#openrouter_providers_text').val(textgenerationwebui_settings.openrouter_providers).trigger('change');
     $('#openrouter_quantizations_text').val(textgenerationwebui_settings.openrouter_quantizations).trigger('change');
     showSamplerControls(textgenerationwebui_settings.type);
@@ -691,6 +694,7 @@ async function getStatusTextgen() {
                 api_type: textgenerationwebui_settings.type,
                 openrouter_site_url: textgenerationwebui_settings.openrouter_site_url,
                 openrouter_app_name: textgenerationwebui_settings.openrouter_app_name,
+                openrouter_model_sort: textgenerationwebui_settings.openrouter_model_sort,
             }),
             signal: abortStatusCheck.signal,
         });
@@ -1097,6 +1101,13 @@ export function initTextGenSettings() {
 
         textgenerationwebui_settings.openrouter_quantizations = selectedQuantizations;
 
+        saveSettingsDebounced();
+    });
+
+    $('#openrouter_model_sort_textgenerationwebui').on('input', function () {
+        textgenerationwebui_settings.openrouter_model_sort = String($(this).val() || '');
+        cancelStatusCheck('Canceled because OpenRouter model sorting changed');
+        $('#api_button_textgenerationwebui').trigger('click');
         saveSettingsDebounced();
     });
 

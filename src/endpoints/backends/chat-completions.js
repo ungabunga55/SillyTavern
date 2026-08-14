@@ -140,6 +140,7 @@ const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
 const API_REQUESTY = 'https://router.requesty.ai/v1';
 const API_WORKERS_AI = 'https://api.cloudflare.com/client/v4/accounts';
+const OPENROUTER_MODEL_SORTS = new Set(['most-popular', 'newest', 'top-weekly']);
 
 const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
     'temperature',
@@ -3313,6 +3314,9 @@ router.post('/status', async function (request, statusResponse) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
             // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
             headers = getOpenRouterHeaders(request.body);
+            if (OPENROUTER_MODEL_SORTS.has(request.body.openrouter_model_sort)) {
+                queryParams.sort = request.body.openrouter_model_sort;
+            }
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.REQUESTY) {
             apiUrl = API_REQUESTY;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.REQUESTY, request.body.secret_id);

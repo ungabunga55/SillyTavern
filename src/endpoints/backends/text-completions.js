@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { getOpenRouterSessionId } from './openrouter-cache.js';
 
 export const router = express.Router();
+const OPENROUTER_MODEL_SORTS = new Set(['most-popular', 'newest', 'top-weekly']);
 
 /**
  * Special boy's steaming routine. Wrap this abomination into proper SSE stream.
@@ -149,6 +150,12 @@ router.post('/status', async function (request, response) {
             case TEXTGEN_TYPES.HUGGINGFACE:
                 url += '/info';
                 break;
+        }
+
+        if (apiType === TEXTGEN_TYPES.OPENROUTER && OPENROUTER_MODEL_SORTS.has(request.body.openrouter_model_sort)) {
+            const modelsUrl = new URL(url);
+            modelsUrl.searchParams.set('sort', request.body.openrouter_model_sort);
+            url = modelsUrl.toString();
         }
 
         const modelsReply = await fetch(url, args);

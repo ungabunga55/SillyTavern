@@ -19,6 +19,7 @@ let featherlessModels = [];
 let tabbyModels = [];
 let llamacppModels = [];
 export let openRouterModels = [];
+const OPENROUTER_MODEL_SORTS = new Set(['most-popular', 'newest', 'top-weekly']);
 
 /**
  * List of OpenRouter providers.
@@ -665,7 +666,9 @@ export async function loadOpenRouterModels(data) {
         return;
     }
 
-    data.sort((a, b) => a.name.localeCompare(b.name));
+    if (!OPENROUTER_MODEL_SORTS.has(textgen_settings.openrouter_model_sort)) {
+        data.sort((a, b) => a.name.localeCompare(b.name));
+    }
     openRouterModels = data;
 
     if (!data.find(x => x.id === textgen_settings.openrouter_model)) {
