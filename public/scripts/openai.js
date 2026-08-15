@@ -3406,16 +3406,13 @@ function getReasoningEffort(settings = null, model = null) {
 
             switch (settings.reasoning_effort) {
                 case reasoning_effort_types.auto:
-                case reasoning_effort_types.low:
-                case reasoning_effort_types.medium:
-                case reasoning_effort_types.high:
-                case reasoning_effort_types.xhigh:
-                case reasoning_effort_types.max:
                     return reasoning_effort_types.high;
                 case reasoning_effort_types.min:
-                    return 'none';
+                    return 'minimal';
+                case reasoning_effort_types.max:
+                    return reasoning_effort_types.xhigh;
                 default:
-                    return ['high', 'none'].includes(settings.reasoning_effort) ? settings.reasoning_effort : reasoning_effort_types.high;
+                    return settings.reasoning_effort;
             }
         }
 
@@ -3691,6 +3688,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.XAI,
         chat_completion_sources.AIMLAPI,
         chat_completion_sources.MOONSHOT,
+        chat_completion_sources.MISTRALAI,
     ];
 
     const isO1 = gptSources.includes(settings.chat_completion_source) && ['o1-2024-12-17', 'o1'].includes(model);
@@ -3863,6 +3861,7 @@ export async function createGenerationParameters(settings, model, type, messages
     if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
         generate_data.safe_prompt = false; // already defaults to false, but just incase they change that in the future.
         generate_data.stop = getCustomStoppingStrings(); // Mistral shouldn't have limits on stop strings.
+        generate_data.top_p = Math.max(Number(settings.top_p_openai), Number.EPSILON);
     }
 
     if (settings.chat_completion_source === chat_completion_sources.CUSTOM) {
@@ -6642,6 +6641,10 @@ function getMistralMaxContext(model, isUnlocked) {
         if (contextLength) {
             return contextLength;
         }
+    }
+
+    if (['glm-5-2', 'zai-glm-5-2'].includes(model)) {
+        return max_1mil;
     }
 
     // Return context size if model found, otherwise default to 32k

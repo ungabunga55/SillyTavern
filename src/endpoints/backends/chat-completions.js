@@ -2406,8 +2406,9 @@ async function sendMistralAIRequest(request, response) {
             'stream': request.body.stream,
             'safe_prompt': request.body.safe_prompt,
             'random_seed': request.body.seed === -1 ? undefined : request.body.seed,
-            'reasoning_effort': ['high', 'none'].includes(request.body.reasoning_effort) ? request.body.reasoning_effort : undefined,
+            'reasoning_effort': request.body.reasoning_effort || undefined,
             'stop': Array.isArray(request.body.stop) && request.body.stop.length > 0 ? request.body.stop : undefined,
+            'n': request.body.n,
         };
 
         if (Array.isArray(request.body.tools) && request.body.tools.length > 0) {
@@ -3614,6 +3615,10 @@ router.post('/status', async function (request, statusResponse) {
                 data = { data: data.map(model => ({ id: model.name, ...model })) };
             }
 
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MISTRALAI && Array.isArray(data)) {
+                data = { data };
+            }
+
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CHUTES && Array.isArray(data?.data)) {
                 data.data = data.data
                     .filter(model => model?.id)
@@ -4600,7 +4605,8 @@ multimodalModels.post('/mistral', async (req, res) => {
 
         /** @type {any} */
         const data = await response.json();
-        const multimodalModels = data.data.filter(m => m.capabilities?.vision).map(m => m.id);
+        const models = Array.isArray(data) ? data : data?.data;
+        const multimodalModels = Array.isArray(models) ? models.filter(m => m.capabilities?.vision).map(m => m.id) : [];
         return res.json(multimodalModels);
     } catch (error) {
         console.error(error);

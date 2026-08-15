@@ -652,7 +652,7 @@
                                         <input type="number" id="openai_max_tokens" name="openai_max_tokens" class="text_pole" min="1" max="128000" step="1">
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,custom,xai,aimlapi,moonshot,azure_openai">
+                                <div class="range-block" data-source="openai,custom,xai,aimlapi,moonshot,mistralai,azure_openai">
                                     <div class="range-block-title" data-i18n="Multiple swipes per generation">
                                         Multiple swipes per generation
                                     </div>
@@ -2302,8 +2302,8 @@
                                             <div class="toggle-description justifyLeft marginBot5" data-source="requesty" data-i18n="Requesty supports min, low, medium, high, and max reasoning efforts. Extra High is sent as max; Auto uses the provider default; unchecking Request model reasoning sends none.">
                                                 Requesty supports min, low, medium, high, and max reasoning efforts. Extra High is sent as max; Auto uses the provider default; unchecking Request model reasoning sends none.
                                             </div>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.">
-                                                Mistral supports high and none. Auto follows Request model reasoning; Minimum disables reasoning; other levels request high reasoning.
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="mistralai" data-i18n="Mistral supports minimal, low, medium, high, and extra high reasoning effort. Auto requests high reasoning when enabled; Minimum sends minimal; Maximum sends extra high; unchecking Request model reasoning sends none.">
+                                                Mistral supports minimal, low, medium, high, and extra high reasoning effort. Auto requests high reasoning when enabled; Minimum sends minimal; Maximum sends extra high; unchecking Request model reasoning sends none.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="zai">
                                                 GLM-5.2 and GLM-5.3 support high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
