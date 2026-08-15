@@ -5960,6 +5960,31 @@ body:not(.movingUI) .drawer-content.maximized {
     font-weight: 400;
 }
 
+.message-metadata-wrapper,
+.message-metadata {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.message-metadata {
+    width: 100%;
+}
+
+.model-provider-name {
+    display: none;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: calc(var(--mainFontSize) * 0.7);
+    font-weight: 400;
+    line-height: 1.25;
+    opacity: 0.7;
+}
+
+body.show-modelNames .model-provider-name:not(:empty) {
+    display: inline;
+}
+
 .lastInContext {
     border-top: 3px dotted var(--SmartThemeQuoteColor) !important;
 }

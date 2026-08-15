@@ -5567,6 +5567,10 @@
                                     <input id="messageModelIconEnabled" type="checkbox" />
                                     <small data-i18n="Model Icon">Model Icons</small>
                                 </label>
+                                <label for="messageModelNameEnabled" class="checkbox_label" title="Always show the API and model that generated each message." data-i18n="[title]Always show the API and model that generated each message">
+                                    <input id="messageModelNameEnabled" type="checkbox" />
+                                    <small data-i18n="Model/Provider Names">Model/Provider Names</small>
+                                </label>
                                 <label for="mesIDDisplayEnabled" class="checkbox_label" title="Show sequential message numbers in the chat log." data-i18n="[title]Show sequential message numbers in the chat log">
                                     <input id="mesIDDisplayEnabled" type="checkbox" />
                                     <small data-i18n="Message IDs">Message IDs</small>
@@ -7845,11 +7849,12 @@
                 <div class="swipe_left fa-solid fa-chevron-left"></div>
                 <div class="mes_block">
                     <div class="ch_name flex-container justifySpaceBetween">
-                        <div class="flex-container flex1 alignitemscenter">
-                            <div class="flex-container alignItemsBaseline">
+                        <div class="message-metadata-wrapper flex-container flex1 alignitemscenter">
+                            <div class="message-metadata flex-container alignItemsBaseline">
                                 <span class="name_text">${characterName}</span>
                                 <i class="mes_ghost fa-solid fa-ghost" title="This message is invisible for the AI" data-i18n="[title]This message is invisible for the AI"></i>
                                 <small class="timestamp"></small>
+                                <small class="model-provider-name"></small>
                             </div>
                         </div>
                         <div class="mes_buttons">

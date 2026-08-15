@@ -193,6 +193,7 @@ export const power_user = {
     timer_enabled: true,
     timestamps_enabled: true,
     timestamp_model_icon: false,
+    timestamp_model_name: false,
     mesIDDisplay_enabled: false,
     hideChatAvatars_enabled: false,
     max_context_unlocked: false,
@@ -485,6 +486,11 @@ function switchTimestamps() {
 function switchIcons() {
     $('body').toggleClass('no-modelIcons', !power_user.timestamp_model_icon);
     $('#messageModelIconEnabled').prop('checked', power_user.timestamp_model_icon);
+}
+
+function switchModelNames() {
+    $('body').toggleClass('show-modelNames', power_user.timestamp_model_name);
+    $('#messageModelNameEnabled').prop('checked', power_user.timestamp_model_name);
 }
 
 function switchTokenCount() {
@@ -1331,6 +1337,12 @@ function applyTheme(name) {
             },
         },
         {
+            key: 'timestamp_model_name',
+            action: () => {
+                switchModelNames();
+            },
+        },
+        {
             key: 'message_token_count_enabled',
             action: () => {
                 switchTokenCount();
@@ -1487,6 +1499,7 @@ export function applyPowerUserSettings() {
     switchTimer();
     switchTimestamps();
     switchIcons();
+    switchModelNames();
     switchMesIDDisplay();
     switchHideChatAvatars();
     switchTokenCount();
@@ -1711,6 +1724,7 @@ export async function loadPowerUserSettings(settings, data) {
     $('#messageTimerEnabled').prop('checked', power_user.timer_enabled);
     $('#messageTimestampsEnabled').prop('checked', power_user.timestamps_enabled);
     $('#messageModelIconEnabled').prop('checked', power_user.timestamp_model_icon);
+    $('#messageModelNameEnabled').prop('checked', power_user.timestamp_model_name);
     $('#mesIDDisplayEnabled').prop('checked', power_user.mesIDDisplay_enabled);
     $('#hideChatAvatarsEnabled').prop('checked', power_user.hideChatAvatars_enabled);
     $('#prefer_character_prompt').prop('checked', power_user.prefer_character_prompt);
@@ -2558,6 +2572,7 @@ export function getThemeObject(name) {
         timer_enabled: power_user.timer_enabled,
         timestamps_enabled: power_user.timestamps_enabled,
         timestamp_model_icon: power_user.timestamp_model_icon,
+        timestamp_model_name: power_user.timestamp_model_name,
 
         mesIDDisplay_enabled: power_user.mesIDDisplay_enabled,
         hideChatAvatars_enabled: power_user.hideChatAvatars_enabled,
@@ -3693,6 +3708,13 @@ jQuery(() => {
         const value = !!$(this).prop('checked');
         power_user.timestamp_model_icon = value;
         switchIcons();
+        saveSettingsDebounced();
+    });
+
+    $('#messageModelNameEnabled').on('input', function () {
+        const value = !!$(this).prop('checked');
+        power_user.timestamp_model_name = value;
+        switchModelNames();
         saveSettingsDebounced();
     });
 
