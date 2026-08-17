@@ -752,7 +752,7 @@ const default_settings = {
     openai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_prompt_caching: false,
     xai_api_type: openai_api_types.CHAT_COMPLETIONS,
-    openai_model: 'gpt-4-turbo',
+    openai_model: 'gpt-5.6-terra',
     agentrouter_model: 'gpt-5.5',
     claude_model: 'claude-sonnet-4-5',
     google_model: 'gemini-2.5-pro',

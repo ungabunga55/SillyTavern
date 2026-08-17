@@ -2,7 +2,7 @@
     "chat_completion_source": "openai",
     "openai_api_type": "chat_completions",
     "xai_api_type": "chat_completions",
-    "openai_model": "gpt-4-turbo",
+    "openai_model": "gpt-5.6-terra",
     "agentrouter_model": "gpt-5.5",
     "claude_model": "claude-sonnet-4-5",
     "openrouter_model": "OR_Website",
