@@ -123,6 +123,7 @@ const FIREWORKS_SERVERLESS_MODELS = [
     { id: 'accounts/fireworks/models/minimax-m3', display_name: 'MiniMax M3', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 512000 },
     { id: 'accounts/fireworks/models/gpt-oss-120b', display_name: 'OpenAI gpt-oss-120b', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 131072 },
     { id: 'accounts/fireworks/models/gpt-oss-20b', display_name: 'OpenAI gpt-oss-20b', supports_chat: true, supports_tools: false, supports_image_in: false, supports_serverless: true, context_length: 131072 },
+    { id: 'accounts/fireworks/routers/kimi-k3-fast', display_name: 'Kimi K3 Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 1048576 },
     { id: 'accounts/fireworks/routers/kimi-k2p7-code-fast', display_name: 'Kimi K2.7 Code Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
     { id: 'accounts/fireworks/routers/kimi-k2p6-fast', display_name: 'Kimi K2.6 Fast', supports_chat: true, supports_tools: true, supports_image_in: true, supports_serverless: true, context_length: 262144 },
     { id: 'accounts/fireworks/routers/glm-5p3-fast', display_name: 'GLM 5.3 Fast', supports_chat: true, supports_tools: true, supports_image_in: false, supports_serverless: true, context_length: 1048576 },

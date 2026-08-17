@@ -2856,6 +2856,7 @@ function saveModelList(data) {
 
     if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
         $('#model_fireworks_select').empty();
+        model_list.sort((a, b) => (a?.display_name || a?.name || a?.id || '').localeCompare(b?.display_name || b?.name || b?.id || ''));
         model_list.forEach((model) => {
             if (!model?.supports_chat) {
                 return;
@@ -2863,7 +2864,7 @@ function saveModelList(data) {
             $('#model_fireworks_select').append(
                 $('<option>', {
                     value: model.id,
-                    text: model.id,
+                    text: model.display_name || model.name || model.id,
                 }));
         });
 
