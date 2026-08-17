@@ -23,7 +23,7 @@ import { t } from './i18n.js';
 import { instruct_presets } from './instruct-mode.js';
 import { kai_settings } from './kai-settings.js';
 import { convertNovelPreset } from './nai-settings.js';
-import { oai_settings, openai_setting_names, openai_settings } from './openai.js';
+import { getPresetApplicationPromise, oai_settings, openai_setting_names, openai_settings } from './openai.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from './popup.js';
 import { context_presets, getContextSettings, power_user } from './power-user.js';
 import { reasoning_templates } from './reasoning.js';
@@ -406,15 +406,22 @@ class PresetManager {
 
     /**
      * Selects a preset by option value.
+     * The returned promise resolves when the preset is fully applied. Chat Completion presets
+     * apply asynchronously after the change event, so callers that run follow-up commands
+     * (e.g. /preset followed by /api) must await it to avoid overriding their own changes.
      * @param {string} value Preset option value
      * @param {object} [eventData] Additional data for the select change handler
+     * @returns {Promise<void>}
      */
-    selectPreset(value, eventData) {
+    async selectPreset(value, eventData) {
         const option = $(this.select).filter(function () {
             return $(this).val() === value;
         });
         option.prop('selected', true);
         $(this.select).val(value).trigger('change', eventData);
+        if (this.apiId === 'openai') {
+            await getPresetApplicationPromise();
+        }
     }
 
     /**
@@ -956,7 +963,7 @@ async function presetCommandCallback(args, name) {
 
             if (presetValue) {
                 const presetChanged = waitForPresetChange();
-                presetManager.selectPreset(presetValue, { reconnect });
+                await presetManager.selectPreset(presetValue, { reconnect });
                 await presetChanged;
                 reconnect && shouldReconnect && await waitForConnection();
             }
@@ -981,7 +988,7 @@ async function presetCommandCallback(args, name) {
 
             if (currentPreset !== fuzzyPresetName) {
                 const presetChanged = waitForPresetChange();
-                presetManager.selectPreset(fuzzyPresetValue, { reconnect });
+                await presetManager.selectPreset(fuzzyPresetValue, { reconnect });
                 await presetChanged;
                 reconnect && shouldReconnect && await waitForConnection();
             }
