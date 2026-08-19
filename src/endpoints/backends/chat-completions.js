@@ -749,13 +749,15 @@ function sanitizeFireworksRequestBody(requestBody, request) {
                 if (effort === 'min') return 'none';
                 if (['xhigh', 'max'].includes(effort)) return 'high';
                 return ['low', 'medium', 'high'].includes(effort) ? effort : undefined;
+            case 'moonshot':
+                return undefined;
             case 'minimax':
                 if (nativeModel !== 'minimax-m2p7') return undefined;
                 if (['low', 'medium', 'high'].includes(effort)) return effort;
                 if (['xhigh', 'max'].includes(effort)) return 'high';
                 return undefined;
             default:
-                return undefined;
+                return effort;
         }
     }
 
@@ -787,6 +789,12 @@ function sanitizeFireworksRequestBody(requestBody, request) {
         }
     } else {
         delete requestBody.thinking;
+        if (family === 'generic') {
+            const reasoningEffort = getReasoningEffort();
+            if (reasoningEffort) {
+                requestBody.reasoning_effort = reasoningEffort;
+            }
+        }
     }
 
     if (family === 'zai') {
