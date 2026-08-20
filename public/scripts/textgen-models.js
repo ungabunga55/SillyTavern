@@ -754,8 +754,9 @@ export async function loadFeatherlessModels(data) {
     originalModels = data;  // Store the original data for search
     featherlessModels = data;
 
-    if (!data.find(x => x.id === textgen_settings.featherless_model)) {
-        textgen_settings.featherless_model = data[0]?.id || '';
+    const selectableModels = data.filter(model => model.available_on_current_plan !== false);
+    if (!selectableModels.find(x => x.id === textgen_settings.featherless_model)) {
+        textgen_settings.featherless_model = selectableModels[0]?.id || '';
     }
 
     // Populate class select options with unique classes
@@ -793,7 +794,7 @@ export async function loadFeatherlessModels(data) {
 
                     const modelTitle = document.createElement('div');
                     modelTitle.classList.add('model-title');
-                    modelTitle.textContent = model.id.replace(/_/g, '_\u200B');
+                    modelTitle.textContent = String(model.name || model.id).replace(/_/g, '_\u200B');
                     modelNameContainer.appendChild(modelTitle);
 
                     const detailsContainer = document.createElement('div');
@@ -805,15 +806,36 @@ export async function loadFeatherlessModels(data) {
 
                     const contextLengthDiv = document.createElement('div');
                     contextLengthDiv.classList.add('model-context-length');
-                    contextLengthDiv.textContent = t`Context Length` + `: ${model.context_length}`;
-
-                    const dateAddedDiv = document.createElement('div');
-                    dateAddedDiv.classList.add('model-date-added');
-                    dateAddedDiv.textContent = t`Added On` + `: ${new Date(model.created * 1000).toLocaleDateString()}`;
+                    contextLengthDiv.textContent = t`Context Length` + `: ${model.context_length || 'N/A'}`;
 
                     detailsContainer.appendChild(modelClassDiv);
                     detailsContainer.appendChild(contextLengthDiv);
-                    detailsContainer.appendChild(dateAddedDiv);
+                    if (Number(model.max_completion_tokens) > 0) {
+                        const maxOutputDiv = document.createElement('div');
+                        maxOutputDiv.classList.add('model-max-output');
+                        maxOutputDiv.textContent = t`Max Response Length` + `: ${model.max_completion_tokens}`;
+                        detailsContainer.appendChild(maxOutputDiv);
+                    }
+                    if (model.is_gated) {
+                        const gatedDiv = document.createElement('div');
+                        gatedDiv.classList.add('model-availability');
+                        gatedDiv.textContent = t`Gated model`;
+                        detailsContainer.appendChild(gatedDiv);
+                    }
+                    if (model.available_on_current_plan === false) {
+                        const unavailableDiv = document.createElement('div');
+                        unavailableDiv.classList.add('model-availability');
+                        unavailableDiv.textContent = t`Unavailable on current plan`;
+                        detailsContainer.appendChild(unavailableDiv);
+                        card.classList.add('unavailable');
+                        card.setAttribute('aria-disabled', 'true');
+                    }
+                    if (Number(model.created) > 0) {
+                        const dateAddedDiv = document.createElement('div');
+                        dateAddedDiv.classList.add('model-date-added');
+                        dateAddedDiv.textContent = t`Added On` + `: ${new Date(model.created * 1000).toLocaleDateString()}`;
+                        detailsContainer.appendChild(dateAddedDiv);
+                    }
 
                     card.appendChild(modelNameContainer);
                     card.appendChild(detailsContainer);
@@ -825,6 +847,9 @@ export async function loadFeatherlessModels(data) {
                     }
 
                     card.addEventListener('click', function () {
+                        if (model.available_on_current_plan === false) {
+                            return;
+                        }
                         document.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
                         card.classList.add('selected');
                         onFeatherlessModelSelect(model.id);
@@ -907,7 +932,7 @@ export async function loadFeatherlessModels(data) {
         const featherlessNewIds = featherlessNew.map(stat => stat.id);
 
         let filteredModels = originalModels.filter(model => {
-            const matchesSearch = model.id.toLowerCase().includes(searchQuery);
+            const matchesSearch = `${model.id} ${model.name || ''}`.toLowerCase().includes(searchQuery);
             const matchesClass = selectedClass ? model.model_class === selectedClass : true;
             const matchesTop = featherlessIds.includes(model.id);
             const matchesNew = featherlessNewIds.includes(model.id);
@@ -928,9 +953,9 @@ export async function loadFeatherlessModels(data) {
         } else if (selectedSortOrder === 'desc') {
             filteredModels.sort((a, b) => b.id.localeCompare(a.id));
         } else if (selectedSortOrder === 'date_asc') {
-            filteredModels.sort((a, b) => a.created - b.created);
+            filteredModels.sort((a, b) => Number(a.created || 0) - Number(b.created || 0));
         } else if (selectedSortOrder === 'date_desc') {
-            filteredModels.sort((a, b) => b.created - a.created);
+            filteredModels.sort((a, b) => Number(b.created || 0) - Number(a.created || 0));
         }
 
         const currentPerPage = Number(accountStorage.getItem(storageKey)) || perPage;
@@ -942,13 +967,15 @@ export async function loadFeatherlessModels(data) {
 
     // Required to keep the /model command function
     $('#featherless_model').empty();
-    for (const model of data) {
+    for (const model of selectableModels) {
         const option = document.createElement('option');
         option.value = model.id;
-        option.text = model.id;
+        option.text = model.name || model.id;
         option.selected = model.id === textgen_settings.featherless_model;
         $('#featherless_model').append(option);
     }
+
+    applyFeatherlessModelLimits(featherlessModels.find(model => model.id === textgen_settings.featherless_model));
 }
 
 export async function fetchFeatherlessStats() {
@@ -965,10 +992,29 @@ export async function fetchFeatherlessNew() {
 
 function onFeatherlessModelSelect(modelId) {
     const model = featherlessModels.find(x => x.id === modelId);
+    if (!model || model.available_on_current_plan === false) {
+        return;
+    }
     textgen_settings.featherless_model = modelId;
     $('#featherless_model').val(modelId);
     $('#api_button_textgenerationwebui').trigger('click');
-    setGenerationParamsFromPreset({ max_length: model.context_length });
+    applyFeatherlessModelLimits(model);
+}
+
+/**
+ * Applies context and output limits advertised by Featherless.
+ * @param {object} model Featherless model metadata
+ */
+function applyFeatherlessModelLimits(model) {
+    if (!model) {
+        return;
+    }
+    const maxOutput = Number(model.max_completion_tokens);
+    const generationAmount = maxOutput > 0 ? Math.min(amount_gen, maxOutput) : amount_gen;
+    setGenerationParamsFromPreset({
+        max_length: Number(model.context_length) > 0 ? Number(model.context_length) : undefined,
+        genamt: generationAmount,
+    });
 }
 
 let featherlessIsGridView = false;  // Default state set to grid view

@@ -17,6 +17,7 @@ import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 import { setAdditionalHeaders } from '../../additional-headers.js';
 import { createHash } from 'node:crypto';
 import { getOpenRouterSessionId } from './openrouter-cache.js';
+import { fetchFeatherlessModels } from './featherless.js';
 
 export const router = express.Router();
 const OPENROUTER_MODEL_SORTS = new Set(['most-popular', 'newest', 'top-weekly']);
@@ -158,16 +159,23 @@ router.post('/status', async function (request, response) {
             url = modelsUrl.toString();
         }
 
-        const modelsReply = await fetch(url, args);
-        const isPossiblyLmStudio = modelsReply.headers.get('x-powered-by') === 'Express';
-
-        if (!modelsReply.ok) {
-            console.error('Models endpoint is offline.');
-            return response.sendStatus(400);
-        }
-
+        let isPossiblyLmStudio = false;
         /** @type {any} */
-        let data = await modelsReply.json();
+        let data;
+        if (apiType === TEXTGEN_TYPES.FEATHERLESS) {
+            const models = await fetchFeatherlessModels(url, args.headers);
+            data = { data: models };
+        } else {
+            const modelsReply = await fetch(url, args);
+            isPossiblyLmStudio = modelsReply.headers.get('x-powered-by') === 'Express';
+
+            if (!modelsReply.ok) {
+                console.error('Models endpoint is offline.');
+                return response.sendStatus(400);
+            }
+
+            data = await modelsReply.json();
+        }
 
         // Rewrap to OAI-like response
         if (apiType === TEXTGEN_TYPES.TOGETHERAI && Array.isArray(data)) {
@@ -188,7 +196,11 @@ router.post('/status', async function (request, response) {
         }
 
         const modelIds = data.data.map(x => x.id);
-        console.info('Models available:', modelIds);
+        if (apiType === TEXTGEN_TYPES.FEATHERLESS) {
+            console.info(`Featherless models available: ${modelIds.length}`);
+        } else {
+            console.info('Models available:', modelIds);
+        }
 
         // Set result to the first model ID
         result = modelIds[0] || 'Valid';
@@ -235,7 +247,7 @@ router.post('/status', async function (request, response) {
         return response.send({ result, data: data.data });
     } catch (error) {
         console.error(error);
-        return response.sendStatus(500);
+        return response.status(error?.status || 500).send({ error: true });
     }
 });
 
@@ -279,13 +291,13 @@ router.post('/props', async function (request, response) {
 
 router.post('/generate', async function (request, response) {
     if (!request.body) return response.sendStatus(400);
+    const apiType = request.body.api_type;
 
     try {
         if (request.body.api_server.indexOf('localhost') !== -1) {
             request.body.api_server = request.body.api_server.replace('localhost', '127.0.0.1');
         }
 
-        const apiType = request.body.api_type;
         const baseUrl = request.body.api_server;
         console.debug(request.body);
 
@@ -437,7 +449,7 @@ router.post('/generate', async function (request, response) {
                 const errorBody = { error: true, status: completionsReply.status, response: text };
 
                 return !response.headersSent
-                    ? response.send(errorBody)
+                    ? response.status(apiType === TEXTGEN_TYPES.FEATHERLESS ? completionsReply.status : 200).send(errorBody)
                     : response.end();
             }
         }
@@ -448,7 +460,7 @@ router.post('/generate', async function (request, response) {
         console.error('Endpoint error:', error);
 
         return !response.headersSent
-            ? response.send(value)
+            ? response.status(apiType === TEXTGEN_TYPES.FEATHERLESS ? (Number(error?.status) || 502) : 200).send(value)
             : response.end();
     }
 });

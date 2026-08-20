@@ -6255,6 +6255,16 @@ body.show-modelNames .model-provider-name:not(:empty) {
     background-color: var(--okGreen70a);
 }
 
+.model-card.unavailable {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.model-card.unavailable:hover {
+    transform: none;
+    background-color: #222;
+}
+
 .model-info {
     flex: 1;
     white-space: nowrap;
@@ -6278,6 +6288,8 @@ body.show-modelNames .model-provider-name:not(:empty) {
 
 .model-class,
 .model-context-length,
+.model-max-output,
+.model-availability,
 .model-date-added {
     font-size: calc(var(--mainFontSize) * 0.75);
 }
@@ -6346,6 +6358,7 @@ body.show-modelNames .model-provider-name:not(:empty) {
 
     .model-info,
     .model-details,
+    .model-card .details-container,
     .model-date-added {
         width: 100%;
         text-align: left;

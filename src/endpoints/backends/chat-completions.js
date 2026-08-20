@@ -77,6 +77,7 @@ import {
 import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
 import { getOpenRouterSessionId } from './openrouter-cache.js';
+import { fetchFeatherlessModels } from './featherless.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
 const API_AGENTROUTER = 'https://agentrouter.org/v1';
@@ -212,6 +213,35 @@ function isOpenRouterMoonshotModel(model) {
  */
 function isFeatherlessMoonshotModel(model) {
     return /(?:^|\/)moonshotai\//i.test(String(model || ''));
+}
+
+/**
+ * Gets the reasoning-template family for a Featherless model.
+ * @param {string} model Model identifier
+ * @returns {'glm'|'kimi'|'minimax'|'qwen'|'generic'} Template family
+ */
+function getFeatherlessReasoningFamily(model) {
+    const modelId = String(model || '').toLowerCase();
+    const nativeModel = modelId.split('/').pop() || modelId;
+    if (/^glm-/.test(nativeModel)) return 'glm';
+    if (/^kimi(?:$|[-_.])/.test(nativeModel)) return 'kimi';
+    if (/^minimax-m2(?:$|[-_.])/.test(nativeModel)) return 'minimax';
+    if (/^qwen3(?:$|[-_.])/.test(nativeModel)) return 'qwen';
+    return 'generic';
+}
+
+/**
+ * Checks whether a Featherless template supports a preserved-thinking kwarg.
+ * @param {'glm'|'kimi'|'minimax'|'qwen'|'generic'} family Template family
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether preserved thinking can be requested
+ */
+function supportsFeatherlessPreservedThinking(family, model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    if (family === 'glm') return /^glm-(?:4\.7|5(?:\.[123])?)(?:$|[-_.])/.test(nativeModel);
+    if (family === 'kimi') return /^kimi-k(?:2\.[567]|3)(?:$|[-_.])/.test(nativeModel);
+    if (family === 'qwen') return /^qwen3\.[56](?:$|[-_.])/.test(nativeModel);
+    return false;
 }
 
 /**
@@ -3599,7 +3629,7 @@ router.post('/status', async function (request, statusResponse) {
             return statusResponse.status(400).send({ error: true });
         }
 
-        if (!apiKey && !request.body.reverse_proxy && ![CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.NVIDIA].includes(request.body.chat_completion_source)) {
+        if (!apiKey && !request.body.reverse_proxy && ![CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.NVIDIA, CHAT_COMPLETION_SOURCES.FEATHERLESS].includes(request.body.chat_completion_source)) {
             console.warn('Chat Completion API key is missing.');
             return statusResponse.status(400).send({ error: true });
         }
@@ -3608,12 +3638,25 @@ router.post('/status', async function (request, statusResponse) {
         Object.keys(queryParams).forEach(key => {
             modelsUrl.searchParams.append(key, queryParams[key]);
         });
+        const requestHeaders = {
+            ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
+            ...headers,
+        };
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FEATHERLESS) {
+            try {
+                const models = await fetchFeatherlessModels(modelsUrl, requestHeaders);
+                console.info(`Available Featherless models: ${models.length}`);
+                return statusResponse.send({ data: models });
+            } catch (error) {
+                console.error(error.message, error['responseText'] || '');
+                return statusResponse.status(error['status'] || 502).send({ error: true, data: [] });
+            }
+        }
+
         const response = await fetch(modelsUrl, {
             method: 'GET',
-            headers: {
-                ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
-                ...headers,
-            },
+            headers: requestHeaders,
         });
 
         if (response.ok) {
@@ -4139,15 +4182,55 @@ router.post('/generate', async function (request, response) {
             apiUrl = API_FEATHERLESS;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.FEATHERLESS, request.body.secret_id);
             headers = { ...FEATHERLESS_HEADERS };
+            const family = getFeatherlessReasoningFamily(request.body.model);
+            const isMoonshot = isFeatherlessMoonshotModel(request.body.model);
+            const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
+            const nativeModel = String(request.body.model || '').toLowerCase().split('/').pop() || '';
+            const preservedThinking = family !== 'generic' && Boolean(request.body.moonshot_preserved_thinking);
+            const alwaysOnThinking = (family === 'kimi' && /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.]))/.test(nativeModel))
+                || family === 'minimax';
+            const chatTemplateKwargs = request.body.chat_template_kwargs
+                && typeof request.body.chat_template_kwargs === 'object'
+                && !Array.isArray(request.body.chat_template_kwargs)
+                ? { ...request.body.chat_template_kwargs }
+                : {};
+            const explicitThinkingToggles = [chatTemplateKwargs.enable_thinking, chatTemplateKwargs.thinking, chatTemplateKwargs.do_reasoning]
+                .filter(value => typeof value === 'boolean');
+            const thinkingEnabled = alwaysOnThinking || (explicitThinkingToggles.length > 0
+                ? !explicitThinkingToggles.includes(false)
+                : Boolean(request.body.include_reasoning) || thinkingPrefill || preservedThinking);
+            delete chatTemplateKwargs.enable_thinking;
+            delete chatTemplateKwargs.thinking;
+            delete chatTemplateKwargs.do_reasoning;
+            chatTemplateKwargs.enable_thinking = thinkingEnabled;
+
+            if (preservedThinking && supportsFeatherlessPreservedThinking(family, request.body.model)) {
+                if (family === 'glm') {
+                    chatTemplateKwargs.clear_thinking ??= false;
+                } else {
+                    chatTemplateKwargs.preserve_thinking ??= true;
+                }
+            }
+
             bodyParams = {
                 min_p: request.body.min_p,
                 repetition_penalty: request.body.repetition_penalty,
+                stop_token_ids: request.body.stop_token_ids,
+                include_stop_str_in_output: request.body.include_stop_str_in_output,
+                min_tokens: request.body.min_tokens,
+                chat_template_kwargs: chatTemplateKwargs,
             };
-            const isMoonshot = isFeatherlessMoonshotModel(request.body.model);
-            const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
-            const preservedThinking = isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
-            if (thinkingPrefill || preservedThinking) {
-                normalizeMoonshotReasoningContent(request.body.messages, true, preservedThinking);
+
+            const supportsReasoningEffort = (family === 'glm' && /^glm-5\.[23](?:$|[-_.])/.test(nativeModel))
+                || (family === 'kimi' && /^kimi-k3(?:$|[-_.])/.test(nativeModel));
+            if (thinkingEnabled && supportsReasoningEffort && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
+                bodyParams.reasoning_effort = family === 'glm' && request.body.reasoning_effort === 'min'
+                    ? 'minimal'
+                    : request.body.reasoning_effort;
+            }
+
+            if (family !== 'generic') {
+                normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
                 if (thinkingPrefill) {
                     extractMoonshotThinkingPrefill(request.body.messages);
                     addAssistantPrefix(request.body.messages, [], 'partial', true);
@@ -4445,12 +4528,13 @@ router.post('/generate', async function (request, response) {
             const responseText = await fetchResponse.text();
             const errorData = tryParse(responseText);
 
-            const message = fetchResponse.statusText || 'Unknown error occurred';
+            const message = errorData?.error?.message || fetchResponse.statusText || 'Unknown error occurred';
             const quota_error = fetchResponse.status === 429 && errorData?.error?.type === 'insufficient_quota';
             console.error('Chat completion request error: ', message, responseText);
 
             if (!response.headersSent) {
-                response.send({ error: { message }, quota_error: quota_error });
+                const status = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FEATHERLESS ? fetchResponse.status : 200;
+                response.status(status).send({ error: { message }, quota_error: quota_error });
             } else if (!response.writableEnded) {
                 response.write(responseText);
             } else {

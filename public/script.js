@@ -107,7 +107,7 @@ import {
     openai_messages_count,
     chat_completion_sources,
     getChatCompletionModel,
-    isMoonshotKimiAlwaysOnThinkingModel,
+    shouldCaptureReasoningForTools,
     proxies,
     loadProxyPresets,
     selected_proxy,
@@ -5697,7 +5697,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             reasoning = reasoning.trim();
         }
 
-        if (main_api === 'openai' && oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT && isMoonshotKimiAlwaysOnThinkingModel(getChatCompletionModel())) {
+        if (main_api === 'openai' && shouldCaptureReasoningForTools(oai_settings.chat_completion_source, getChatCompletionModel())) {
             toolReasoning = getRegexedString(extractReasoningFromData(data, { ignoreShowThoughts: true }), regex_placement.REASONING);
             if (power_user.trim_spaces) {
                 toolReasoning = toolReasoning.trim();

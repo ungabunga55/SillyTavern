@@ -391,12 +391,55 @@ function isMoonshotProviderModel(source, model) {
 }
 
 /**
+ * Checks if a Featherless model supports interleaved or preserved reasoning history.
+ * @param {string} model Model identifier
+ * @returns {boolean} True for supported GLM, Kimi, MiniMax, and Qwen reasoning families
+ */
+function isFeatherlessReasoningHistoryModel(model) {
+    const modelId = String(model || '').toLowerCase();
+    const nativeModel = modelId.split('/').pop() || modelId;
+    if (/^glm-/.test(nativeModel)) return true;
+    if (/^kimi(?:$|[-_.])/.test(nativeModel)) return true;
+    if (/^minimax-m2(?:$|[-_.])/.test(nativeModel)) return true;
+    if (/^qwen3(?:$|[-_.])/.test(nativeModel)) return true;
+    return false;
+}
+
+/**
+ * Checks if a Featherless model always reasons.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether thinking cannot be disabled
+ */
+function isFeatherlessAlwaysOnThinkingModel(model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    return /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.])|minimax-m2(?:$|[-_.]))/.test(nativeModel);
+}
+
+/**
+ * Checks whether hidden reasoning must be retained for a later tool call.
+ * @param {string} source Chat completion source
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether hidden reasoning should be captured
+ */
+export function shouldCaptureReasoningForTools(source, model) {
+    if (source === chat_completion_sources.MOONSHOT) {
+        return isMoonshotKimiAlwaysOnThinkingModel(model);
+    }
+    if (source !== chat_completion_sources.FEATHERLESS) {
+        return false;
+    }
+    return isFeatherlessAlwaysOnThinkingModel(model)
+        || (oai_settings.moonshot_preserved_thinking && isFeatherlessReasoningHistoryModel(model));
+}
+
+/**
  * Checks if a Moonshot Kimi model always has thinking enabled.
  * @param {string} model Model identifier
  * @returns {boolean} True if thinking cannot be disabled
  */
 export function isMoonshotKimiAlwaysOnThinkingModel(model) {
-    return /^kimi-k2\.7-code$/.test(String(model || ''));
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    return /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.]))/.test(nativeModel);
 }
 
 /**
@@ -1280,13 +1323,17 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const audioInlining = isAudioInliningSupported();
     const canUseTools = ToolManager.isToolCallingSupported();
     const includeSignature = isReasoningSignatureSupported();
-    const moonshotModel = getChatCompletionModel(oai_settings);
-    const isMoonshotModel = isMoonshotProviderModel(oai_settings.chat_completion_source, moonshotModel);
-    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && isMoonshotModel;
-    const isMoonshotThinkingEnabled = isMoonshotModel && (
+    const reasoningModel = getChatCompletionModel(oai_settings);
+    const isMoonshotModel = isMoonshotProviderModel(oai_settings.chat_completion_source, reasoningModel);
+    const isFeatherlessReasoningModel = oai_settings.chat_completion_source === chat_completion_sources.FEATHERLESS
+        && isFeatherlessReasoningHistoryModel(reasoningModel);
+    const supportsThinkingHistory = isMoonshotModel || isFeatherlessReasoningModel;
+    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && supportsThinkingHistory;
+    const isProviderThinkingEnabled = supportsThinkingHistory && (
         preserveThinkingHistory
         || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
-        || isMoonshotThinkingEnabledModel(moonshotModel, oai_settings.show_thoughts || oai_settings.moonshot_thinking_prefill)
+        || (isFeatherlessReasoningModel && isFeatherlessAlwaysOnThinkingModel(reasoningModel))
+        || isMoonshotThinkingEnabledModel(reasoningModel, oai_settings.show_thoughts || (isMoonshotModel && oai_settings.moonshot_thinking_prefill))
     );
     const preservedThinkingPrompts = new Set();
     if (preserveThinkingHistory) {
@@ -1318,9 +1365,9 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             }
         }
     }
-    const isToolReasoningProvider = isMoonshotThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
+    const isToolReasoningProvider = isProviderThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     let toolReasoningMode = tool_reasoning_modes.DISABLED;
-    if (isMoonshotThinkingEnabled) {
+    if (isProviderThinkingEnabled) {
         toolReasoningMode = tool_reasoning_modes.ACTIVE_CHAIN;
     } else if (isToolReasoningProvider) {
         toolReasoningMode = getEffectiveToolReasoningMode();
@@ -2981,6 +3028,10 @@ let featherlessChatCurrentPage = 1;
  * @param {string} modelId Selected model id
  */
 function onFeatherlessChatModelSelect(modelId) {
+    const model = Array.isArray(model_list) ? model_list.find(item => item.id === modelId) : null;
+    if (model?.available_on_current_plan === false) {
+        return;
+    }
     oai_settings.featherless_model = modelId;
     $('#model_featherless_chat_select').val(modelId).trigger('change');
 }
@@ -3005,13 +3056,15 @@ function loadFeatherlessChatModels(data) {
 
     const originalModels = data;
 
-    if (!data.find(x => x.id === oai_settings.featherless_model)) {
-        oai_settings.featherless_model = data[0]?.id || '';
+    const selectableModels = data.filter(model => model.available_on_current_plan !== false);
+    if (!selectableModels.find(x => x.id === oai_settings.featherless_model)) {
+        oai_settings.featherless_model = selectableModels[0]?.id || '';
     }
 
     $('#model_featherless_chat_select').empty();
-    for (const model of data) {
-        $('#model_featherless_chat_select').append($('<option>', { value: model.id, text: model.id }));
+    for (const model of selectableModels) {
+        const option = new Option(model.name || model.id, model.id);
+        $('#model_featherless_chat_select').append(option);
     }
     $('#model_featherless_chat_select').val(oai_settings.featherless_model).trigger('change');
 
@@ -3050,7 +3103,7 @@ function loadFeatherlessChatModels(data) {
 
                     const modelTitle = document.createElement('div');
                     modelTitle.classList.add('model-title');
-                    modelTitle.textContent = model.id.replace(/_/g, '_\u200B');
+                    modelTitle.textContent = String(model.name || model.id).replace(/_/g, '_\u200B');
                     modelNameContainer.appendChild(modelTitle);
 
                     const detailsContainer = document.createElement('div');
@@ -3062,15 +3115,36 @@ function loadFeatherlessChatModels(data) {
 
                     const contextLengthDiv = document.createElement('div');
                     contextLengthDiv.classList.add('model-context-length');
-                    contextLengthDiv.textContent = t`Context Length` + `: ${model.context_length}`;
-
-                    const dateAddedDiv = document.createElement('div');
-                    dateAddedDiv.classList.add('model-date-added');
-                    dateAddedDiv.textContent = t`Added On` + `: ${new Date(model.created * 1000).toLocaleDateString()}`;
+                    contextLengthDiv.textContent = t`Context Length` + `: ${model.context_length || 'N/A'}`;
 
                     detailsContainer.appendChild(modelClassDiv);
                     detailsContainer.appendChild(contextLengthDiv);
-                    detailsContainer.appendChild(dateAddedDiv);
+                    if (Number(model.max_completion_tokens) > 0) {
+                        const maxOutputDiv = document.createElement('div');
+                        maxOutputDiv.classList.add('model-max-output');
+                        maxOutputDiv.textContent = t`Max Response Length` + `: ${model.max_completion_tokens}`;
+                        detailsContainer.appendChild(maxOutputDiv);
+                    }
+                    if (model.is_gated) {
+                        const gatedDiv = document.createElement('div');
+                        gatedDiv.classList.add('model-availability');
+                        gatedDiv.textContent = t`Gated model`;
+                        detailsContainer.appendChild(gatedDiv);
+                    }
+                    if (model.available_on_current_plan === false) {
+                        const unavailableDiv = document.createElement('div');
+                        unavailableDiv.classList.add('model-availability');
+                        unavailableDiv.textContent = t`Unavailable on current plan`;
+                        detailsContainer.appendChild(unavailableDiv);
+                        card.classList.add('unavailable');
+                        card.setAttribute('aria-disabled', 'true');
+                    }
+                    if (Number(model.created) > 0) {
+                        const dateAddedDiv = document.createElement('div');
+                        dateAddedDiv.classList.add('model-date-added');
+                        dateAddedDiv.textContent = t`Added On` + `: ${new Date(model.created * 1000).toLocaleDateString()}`;
+                        detailsContainer.appendChild(dateAddedDiv);
+                    }
 
                     card.appendChild(modelNameContainer);
                     card.appendChild(detailsContainer);
@@ -3082,6 +3156,9 @@ function loadFeatherlessChatModels(data) {
                     }
 
                     card.addEventListener('click', function () {
+                        if (model.available_on_current_plan === false) {
+                            return;
+                        }
                         modelCardBlock.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
                         card.classList.add('selected');
                         onFeatherlessChatModelSelect(model.id);
@@ -3142,7 +3219,7 @@ function loadFeatherlessChatModels(data) {
         const featherlessNewIds = featherlessNew.map(stat => stat.id);
 
         let filteredModels = originalModels.filter(model => {
-            const matchesSearch = model.id.toLowerCase().includes(searchQuery);
+            const matchesSearch = `${model.id} ${model.name || ''}`.toLowerCase().includes(searchQuery);
             const matchesClass = selectedClass ? model.model_class === selectedClass : true;
             const matchesTop = featherlessIds.includes(model.id);
             const matchesNew = featherlessNewIds.includes(model.id);
@@ -3163,9 +3240,9 @@ function loadFeatherlessChatModels(data) {
         } else if (selectedSortOrder === 'desc') {
             filteredModels.sort((a, b) => b.id.localeCompare(a.id));
         } else if (selectedSortOrder === 'date_asc') {
-            filteredModels.sort((a, b) => a.created - b.created);
+            filteredModels.sort((a, b) => Number(a.created || 0) - Number(b.created || 0));
         } else if (selectedSortOrder === 'date_desc') {
-            filteredModels.sort((a, b) => b.created - a.created);
+            filteredModels.sort((a, b) => Number(b.created || 0) - Number(a.created || 0));
         }
 
         const currentPerPage = Number(accountStorage.getItem(storageKey)) || perPage;
@@ -4167,7 +4244,7 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_k = settings.top_k_openai > 0 ? Number(settings.top_k_openai) : undefined;
         generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
         generate_data.frequency_penalty = Number(settings.freq_pen_openai);
-        generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
+        generate_data.seed = settings.seed >= 0 ? Number(settings.seed) : undefined;
         generate_data.top_p = clamp(Number(settings.top_p_openai), 0.001, 1.0);
         generate_data.stop = getCustomStoppingStrings();
         generate_data.min_p = clamp(Number(settings.min_p_openai), 0, 1.0);
@@ -4564,7 +4641,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         if (show_thoughts) {
             state.reasoning += reasoningDelta;
         }
-        if (chat_completion_source === chat_completion_sources.MOONSHOT && isMoonshotKimiAlwaysOnThinkingModel(getChatCompletionModel())) {
+        if (shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
             state.toolReasoning += reasoningDelta;
         }
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
@@ -6984,6 +7061,7 @@ function getFeatherlessMaxContext(model, isUnlocked) {
 async function onModelChange() {
     biasCache = undefined;
     let value = String($(this).val() || '');
+    $('#openai_max_tokens').attr('max', 128000);
 
     // Skip setting the context size for sources that get it from external APIs
     const hasModelsLoaded = Array.isArray(model_list) && model_list.length > 0;
@@ -7296,10 +7374,15 @@ async function onModelChange() {
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.FEATHERLESS) {
+        const model = Array.isArray(model_list) ? model_list.find(item => item.id === oai_settings.featherless_model) : null;
         const maxContext = getFeatherlessMaxContext(oai_settings.featherless_model, oai_settings.max_context_unlocked);
         $('#openai_max_context').attr('max', maxContext);
         oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
         $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        const maxOutput = Number(model?.max_completion_tokens) > 0 ? Number(model.max_completion_tokens) : 128000;
+        $('#openai_max_tokens').attr('max', maxOutput);
+        oai_settings.openai_max_tokens = Math.min(maxOutput, oai_settings.openai_max_tokens);
+        $('#openai_max_tokens').val(oai_settings.openai_max_tokens).trigger('input');
         oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
