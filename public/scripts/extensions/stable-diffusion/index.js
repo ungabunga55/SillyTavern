@@ -159,6 +159,16 @@ const triggerWords = {
     [generationMode.BACKGROUND]: ['background'],
 };
 
+const wandModeOptions = [
+    { mode: generationMode.CHARACTER, id: 'sd_you', trigger: 'you', label: 'Yourself', i18nKey: 'sd_Yourself' },
+    { mode: generationMode.FACE, id: 'sd_face', trigger: 'face', label: 'Your Face', i18nKey: 'sd_Your_Face' },
+    { mode: generationMode.USER, id: 'sd_me', trigger: 'me', label: 'Me', i18nKey: 'sd_Me' },
+    { mode: generationMode.SCENARIO, id: 'sd_world', trigger: 'scene', label: 'The Whole Story', i18nKey: 'sd_The_Whole_Story' },
+    { mode: generationMode.NOW, id: 'sd_last', trigger: 'last', label: 'The Last Message', i18nKey: 'sd_The_Last_Message' },
+    { mode: generationMode.RAW_LAST, id: 'sd_raw_last', trigger: 'raw_last', label: 'Raw Last Message', i18nKey: 'sd_Raw_Last_Message' },
+    { mode: generationMode.BACKGROUND, id: 'sd_background', trigger: 'background', label: 'Background', i18nKey: 'sd_Background' },
+];
+
 const messageTrigger = {
     activationRegex: /\b(send|mail|imagine|generate|make|create|draw|paint|render|show)\b.{0,10}\b(pic|picture|image|drawing|painting|photo|photograph)\b(?:\s+of)?(?:\s+(?:a|an|the|this|that|those|your)?\s+)?(.+)/i,
     specialCases: {
@@ -284,6 +294,7 @@ const defaultSettings = {
     prompt_processing: 'standard',
 
     prompts: promptTemplates,
+    prompt_metadata: {},
 
     // AUTOMATIC1111 settings
     auto_url: 'http://localhost:7860',
@@ -500,6 +511,10 @@ async function loadSettings() {
         extension_settings.sd.prompts = promptTemplates;
     }
 
+    if (!extension_settings.sd.prompt_metadata || typeof extension_settings.sd.prompt_metadata !== 'object' || Array.isArray(extension_settings.sd.prompt_metadata)) {
+        extension_settings.sd.prompt_metadata = {};
+    }
+
     // Insert missing templates
     for (const [key, value] of Object.entries(promptTemplates)) {
         if (extension_settings.sd.prompts[key] === undefined) {
@@ -643,20 +658,35 @@ function addPromptTemplates() {
     $('#sd_prompt_templates').empty();
 
     for (const [name, prompt] of Object.entries(extension_settings.sd.prompts).sort((a, b) => Number(a[0]) - Number(b[0]))) {
-        const label = $('<label></label>')
-            .text(modeLabels[name])
-            .attr('for', `sd_prompt_${name}`)
-            .attr('data-i18n', `sd_prompt_${name}`);
+        const defaultName = translate(modeLabels[name] ?? String(name), `sd_prompt_${name}`);
+        const customName = getCustomPromptTemplateName(name);
         const textarea = $('<textarea></textarea>')
             .addClass('textarea_compact text_pole')
             .attr('id', `sd_prompt_${name}`)
+            .attr('aria-label', getPromptTemplateName(name))
             .attr('rows', 3)
             .val(prompt).on('input', () => {
                 extension_settings.sd.prompts[name] = textarea.val();
                 saveSettingsDebounced();
             });
+        const nameInput = $('<input>')
+            .addClass('text_pole flex1 sd_prompt_template_name')
+            .attr('type', 'text')
+            .attr('aria-label', translate('Name'))
+            .attr('title', translate('Name'))
+            .val(customName || defaultName)
+            .on('input', () => {
+                updatePromptTemplateMetadata(name, { name: String(nameInput.val()).trim() });
+                textarea.attr('aria-label', getPromptTemplateName(name));
+                renderPromptMenu();
+                saveSettingsDebounced();
+            })
+            .on('change', () => {
+                nameInput.val(getPromptTemplateName(name));
+            });
         const button = $('<button></button>')
             .addClass('menu_button fa-solid fa-undo')
+            .attr('type', 'button')
             .attr('title', 'Restore default')
             .attr('data-i18n', 'Restore default')
             .on('click', () => {
@@ -667,12 +697,102 @@ function addPromptTemplates() {
                 }
                 saveSettingsDebounced();
             });
+        const actions = $('<div></div>').addClass('sd_prompt_template_actions');
+        const wandMode = wandModeOptions.find(option => String(option.mode) === String(name));
+        if (wandMode) {
+            const isFavorite = isPromptTemplateFavorite(name);
+            const favoriteButton = $('<button></button>')
+                .addClass('menu_button fa-star sd_prompt_favorite')
+                .toggleClass('fa-solid', isFavorite)
+                .toggleClass('fa-regular', !isFavorite)
+                .toggleClass('active', isFavorite)
+                .attr('type', 'button')
+                .attr('title', translate('Favorite'))
+                .attr('aria-label', translate('Favorite'))
+                .attr('aria-pressed', String(isFavorite))
+                .on('click', () => {
+                    const favorite = !isPromptTemplateFavorite(name);
+                    updatePromptTemplateMetadata(name, { favorite });
+                    favoriteButton
+                        .toggleClass('fa-solid', favorite)
+                        .toggleClass('fa-regular', !favorite)
+                        .toggleClass('active', favorite)
+                        .attr('aria-pressed', String(favorite));
+                    renderPromptMenu();
+                    saveSettingsDebounced();
+                });
+            actions.append(favoriteButton);
+        }
+        actions.append(button);
         const container = $('<div></div>')
-            .addClass('title_restorable')
-            .append(label)
-            .append(button);
+            .addClass('sd_prompt_template_header')
+            .append(nameInput)
+            .append(actions);
         $('#sd_prompt_templates').append(container);
         $('#sd_prompt_templates').append(textarea);
+    }
+
+    renderPromptMenu();
+}
+
+function getPromptTemplateMetadata(mode) {
+    const metadata = extension_settings.sd.prompt_metadata?.[mode];
+    return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+}
+
+function getCustomPromptTemplateName(mode) {
+    return String(getPromptTemplateMetadata(mode).name ?? '').trim();
+}
+
+function isPromptTemplateFavorite(mode) {
+    return getPromptTemplateMetadata(mode).favorite === true;
+}
+
+function updatePromptTemplateMetadata(mode, updates) {
+    const metadata = { ...getPromptTemplateMetadata(mode), ...updates };
+    const name = String(metadata.name ?? '').trim();
+    if (name) {
+        metadata.name = name;
+    } else {
+        delete metadata.name;
+    }
+    if (metadata.favorite !== true) {
+        delete metadata.favorite;
+    }
+
+    const promptMetadata = { ...extension_settings.sd.prompt_metadata };
+    if (Object.keys(metadata).length) {
+        promptMetadata[mode] = metadata;
+    } else {
+        delete promptMetadata[mode];
+    }
+    extension_settings.sd.prompt_metadata = promptMetadata;
+}
+
+function getPromptTemplateName(mode) {
+    return getCustomPromptTemplateName(mode) || translate(modeLabels[mode] ?? String(mode), `sd_prompt_${mode}`);
+}
+
+function renderPromptMenu() {
+    const list = $('#sd_dropdown .list-group');
+    if (!list.length) {
+        return;
+    }
+
+    list.find('.sd_prompt_option').remove();
+    const hasFavorites = wandModeOptions.some(option => isPromptTemplateFavorite(option.mode));
+    const visibleOptions = hasFavorites
+        ? wandModeOptions.filter(option => isPromptTemplateFavorite(option.mode))
+        : wandModeOptions;
+
+    for (const option of visibleOptions) {
+        const customName = getCustomPromptTemplateName(option.mode);
+        const menuItem = $('<li></li>')
+            .addClass('list-group-item sd_prompt_option')
+            .attr('id', option.id)
+            .attr('data-trigger', option.trigger)
+            .text(customName || translate(option.label, option.i18nKey));
+        list.append(menuItem);
     }
 }
 
@@ -5145,6 +5265,7 @@ async function addSDGenButtons() {
     const button = $('#sd_gen');
     const dropdown = $('#sd_dropdown');
     dropdown.hide();
+    renderPromptMenu();
 
     let popper = Popper.createPopper(button.get(0), dropdown.get(0), {
         placement: 'top',
@@ -5165,20 +5286,9 @@ async function addSDGenButtons() {
         }
     });
 
-    $('#sd_dropdown [id]').on('click', function () {
+    dropdown.on('click', '.sd_prompt_option', function () {
         dropdown.fadeOut(animation_duration);
-        const id = $(this).attr('id');
-        const idParamMap = {
-            'sd_you': 'you',
-            'sd_face': 'face',
-            'sd_me': 'me',
-            'sd_world': 'scene',
-            'sd_last': 'last',
-            'sd_raw_last': 'raw_last',
-            'sd_background': 'background',
-        };
-
-        const param = idParamMap[id];
+        const param = $(this).data('trigger');
 
         if (param) {
             console.log('doing /sd ' + param);

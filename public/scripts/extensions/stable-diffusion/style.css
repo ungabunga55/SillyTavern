@@ -3,6 +3,32 @@
     backdrop-filter: blur(var(--SmartThemeBlurStrength));
 }
 
+.sd_prompt_template_header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 5px;
+}
+
+.sd_prompt_template_name {
+    min-width: 0;
+    margin: 0;
+}
+
+.sd_prompt_template_actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 5px;
+}
+
+.sd_prompt_template_actions .menu_button {
+    margin: 0;
+}
+
+.sd_prompt_favorite.active {
+    color: var(--golden);
+}
+
 #sd_comfy_open_workflow_editor {
     display: flex;
     flex-direction: row;
