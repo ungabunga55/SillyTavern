@@ -8020,6 +8020,8 @@ export function isImageInliningSupported() {
         'kimi-k2.6',
         'kimi-k2.7-code',
         'kimi-latest',
+        // DeepSeek
+        'deepseek',
         // Z.AI (GLM)
         'glm-4.5v',
         'glm-4.6v',
@@ -8088,6 +8090,8 @@ export function isImageInliningSupported() {
             return visionSupportedModels.some(model => oai_settings.zai_model.includes(model));
         case chat_completion_sources.SILICONFLOW:
             return visionSupportedModels.some(model => oai_settings.siliconflow_model.includes(model));
+        case chat_completion_sources.DEEPSEEK:
+            return visionSupportedModels.some(model => oai_settings.deepseek_model.includes(model));
         case chat_completion_sources.FIREWORKS: {
             const fireworksModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.fireworks_model);
             return Boolean(fireworksModel?.supports_image_in ?? fireworksModel?.supportsImageInput);
