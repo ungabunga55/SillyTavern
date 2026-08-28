@@ -2306,7 +2306,7 @@
                                                 Mistral supports minimal, low, medium, high, and extra high reasoning effort. Auto requests high reasoning when enabled; Minimum sends minimal; Maximum sends extra high; unchecking Request model reasoning sends none.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="zai">
-                                                GLM-5.2 and GLM-5.3 support high and max reasoning effort. Auto uses the provider default; low and medium are treated as high by Z.AI; Minimum disables thinking.
+                                                GLM-5.2 supports switchable thinking. GLM-5.3 and GLM-5.3-Flash always think and support low, high, and max effort; Minimum requests low. Auto uses the provider default; other selected values pass through.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="nvidia">
                                                 NVIDIA DeepSeek V4 Pro supports none, high, and max reasoning effort. Auto uses the provider default; low and medium are treated as high; Minimum disables reasoning. Other NVIDIA models do not receive this parameter.
@@ -4370,6 +4370,7 @@
                             <select id="model_zai_select">
                                 <option value="glm-5-turbo">glm-5-turbo</option>
                                 <option value="glm-5v-turbo">glm-5v-turbo</option>
+                                <option value="glm-5.3-flash">glm-5.3-flash</option>
                                 <option value="glm-5.3">glm-5.3</option>
                                 <option value="glm-5.2">glm-5.2</option>
                                 <option value="glm-5.1">glm-5.1</option>

@@ -406,13 +406,24 @@ function isFeatherlessReasoningHistoryModel(model) {
 }
 
 /**
+ * Checks if a Z.AI GLM model always reasons.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether thinking cannot be disabled
+ */
+function isZaiAlwaysOnThinkingModel(model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    return /^glm-5\.3(?:-flash)?$/.test(nativeModel);
+}
+
+/**
  * Checks if a Featherless model always reasons.
  * @param {string} model Model identifier
  * @returns {boolean} Whether thinking cannot be disabled
  */
 function isFeatherlessAlwaysOnThinkingModel(model) {
     const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
-    return /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.])|minimax-m2(?:$|[-_.]))/.test(nativeModel);
+    return isZaiAlwaysOnThinkingModel(nativeModel)
+        || /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.])|minimax-m2(?:$|[-_.]))/.test(nativeModel);
 }
 
 /**
@@ -424,6 +435,9 @@ function isFeatherlessAlwaysOnThinkingModel(model) {
 export function shouldCaptureReasoningForTools(source, model) {
     if (source === chat_completion_sources.MOONSHOT) {
         return isMoonshotKimiAlwaysOnThinkingModel(model);
+    }
+    if (source === chat_completion_sources.ZAI) {
+        return isZaiAlwaysOnThinkingModel(model);
     }
     if (source !== chat_completion_sources.FEATHERLESS) {
         return false;
@@ -1327,11 +1341,14 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const isMoonshotModel = isMoonshotProviderModel(oai_settings.chat_completion_source, reasoningModel);
     const isFeatherlessReasoningModel = oai_settings.chat_completion_source === chat_completion_sources.FEATHERLESS
         && isFeatherlessReasoningHistoryModel(reasoningModel);
-    const supportsThinkingHistory = isMoonshotModel || isFeatherlessReasoningModel;
-    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && supportsThinkingHistory;
+    const isZaiAlwaysOnThinking = oai_settings.chat_completion_source === chat_completion_sources.ZAI
+        && isZaiAlwaysOnThinkingModel(reasoningModel);
+    const supportsThinkingHistory = isMoonshotModel || isFeatherlessReasoningModel || isZaiAlwaysOnThinking;
+    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && (isMoonshotModel || isFeatherlessReasoningModel);
     const isProviderThinkingEnabled = supportsThinkingHistory && (
         preserveThinkingHistory
         || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        || isZaiAlwaysOnThinking
         || (isFeatherlessReasoningModel && isFeatherlessAlwaysOnThinkingModel(reasoningModel))
         || isMoonshotThinkingEnabledModel(reasoningModel, oai_settings.show_thoughts || (isMoonshotModel && oai_settings.moonshot_thinking_prefill))
     );
@@ -3528,7 +3545,7 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.auto:
                     return undefined;
                 case reasoning_effort_types.min:
-                    return 'minimal';
+                    return isZaiAlwaysOnThinkingModel(model) ? reasoning_effort_types.low : 'minimal';
                 default:
                     return settings.reasoning_effort;
             }
@@ -4038,7 +4055,7 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_p = generate_data.top_p || 0.01;
         generate_data.stop = getCustomStoppingStrings(1);
         generate_data.zai_endpoint = settings.zai_endpoint || ZAI_ENDPOINT.COMMON;
-        if (!['glm-5.2', 'glm-5.3'].includes(model)) {
+        if (!['glm-5.2', 'glm-5.3', 'glm-5.3-flash'].includes(model)) {
             delete generate_data.reasoning_effort;
         }
         delete generate_data.presence_penalty;
@@ -5205,6 +5222,7 @@ class Message {
             chat_completion_sources.MISTRALAI,
             chat_completion_sources.VERTEXAI,
             chat_completion_sources.FIREWORKS,
+            chat_completion_sources.ZAI,
         ];
         const sizeThreshold = 2 * 1024 * 1024;
         const dataSize = image.length * 0.75;
@@ -6805,6 +6823,7 @@ function getZaiMaxContext(model, isUnlocked) {
     }
 
     const contextMap = {
+        'glm-5.3-flash': max_1mil,
         'glm-5.3': max_1mil,
         'glm-5.2': max_1mil,
         'glm-5.1': max_200k,
@@ -8023,6 +8042,7 @@ export function isImageInliningSupported() {
         // DeepSeek
         'deepseek',
         // Z.AI (GLM)
+        'glm-5.3-flash',
         'glm-4.5v',
         'glm-4.6v',
         'glm-5v-turbo',
@@ -8131,6 +8151,7 @@ export function isVideoInliningSupported() {
         'kimi-k2.7-code',
         'kimi-latest',
         // Z.AI (GLM)
+        'glm-5.3-flash',
         'glm-4.5v',
         'glm-4.6v',
         'glm-5v-turbo',

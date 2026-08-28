@@ -231,6 +231,16 @@ function getFeatherlessReasoningFamily(model) {
 }
 
 /**
+ * Checks if a Z.AI GLM model always reasons.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether thinking cannot be disabled
+ */
+function isZaiAlwaysOnThinkingModel(model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    return /^glm-5\.3(?:-flash)?$/.test(nativeModel);
+}
+
+/**
  * Checks whether a Featherless template supports a preserved-thinking kwarg.
  * @param {'glm'|'kimi'|'minimax'|'qwen'|'generic'} family Template family
  * @param {string} model Model identifier
@@ -4187,7 +4197,8 @@ router.post('/generate', async function (request, response) {
             const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
             const nativeModel = String(request.body.model || '').toLowerCase().split('/').pop() || '';
             const preservedThinking = family !== 'generic' && Boolean(request.body.moonshot_preserved_thinking);
-            const alwaysOnThinking = (family === 'kimi' && /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.]))/.test(nativeModel))
+            const alwaysOnThinking = (family === 'glm' && isZaiAlwaysOnThinkingModel(nativeModel))
+                || (family === 'kimi' && /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.]))/.test(nativeModel))
                 || family === 'minimax';
             const chatTemplateKwargs = request.body.chat_template_kwargs
                 && typeof request.body.chat_template_kwargs === 'object'
@@ -4211,6 +4222,9 @@ router.post('/generate', async function (request, response) {
                     chatTemplateKwargs.preserve_thinking ??= true;
                 }
             }
+            if (family === 'glm' && alwaysOnThinking && Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls))) {
+                chatTemplateKwargs.clear_thinking = false;
+            }
 
             bodyParams = {
                 min_p: request.body.min_p,
@@ -4225,7 +4239,7 @@ router.post('/generate', async function (request, response) {
                 || (family === 'kimi' && /^kimi-k3(?:$|[-_.])/.test(nativeModel));
             if (thinkingEnabled && supportsReasoningEffort && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
                 bodyParams.reasoning_effort = family === 'glm' && request.body.reasoning_effort === 'min'
-                    ? 'minimal'
+                    ? (alwaysOnThinking ? 'low' : 'minimal')
                     : request.body.reasoning_effort;
             }
 
@@ -4297,13 +4311,39 @@ router.post('/generate', async function (request, response) {
             headers = {
                 'Accept-Language': 'en-US,en',
             };
+            for (const message of Array.isArray(request.body.messages) ? request.body.messages : []) {
+                if (!Array.isArray(message?.content)) {
+                    continue;
+                }
+                for (const part of message.content) {
+                    if (part?.image_url && typeof part.image_url === 'object') {
+                        delete part.image_url.detail;
+                    }
+                    if (part?.video_url && typeof part.video_url === 'object') {
+                        delete part.video_url.detail;
+                    }
+                }
+            }
+            const alwaysOnThinking = isZaiAlwaysOnThinkingModel(request.body.model);
+            const thinkingEnabled = alwaysOnThinking || Boolean(request.body.include_reasoning);
             bodyParams = {
                 thinking: {
-                    type: request.body.include_reasoning ? 'enabled' : 'disabled',
+                    type: thinkingEnabled ? 'enabled' : 'disabled',
                 },
             };
-            if (request.body.include_reasoning && ['glm-5.2', 'glm-5.3'].includes(request.body.model) && request.body.reasoning_effort) {
-                bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+            if ((request.body.include_reasoning || alwaysOnThinking) && ['glm-5.2', 'glm-5.3', 'glm-5.3-flash'].includes(request.body.model) && request.body.reasoning_effort) {
+                bodyParams['reasoning_effort'] = alwaysOnThinking && ['min', 'minimal'].includes(request.body.reasoning_effort)
+                    ? 'low'
+                    : request.body.reasoning_effort;
+            }
+            if (alwaysOnThinking) {
+                normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, false);
+                if (Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls))) {
+                    bodyParams.thinking.clear_thinking = false;
+                }
+            }
+            if (alwaysOnThinking && request.body.stream && Array.isArray(request.body.tools) && request.body.tools.length > 0) {
+                bodyParams['tool_stream'] = true;
             }
             if (request.body.json_schema) {
                 setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
