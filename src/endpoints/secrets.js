@@ -15,6 +15,7 @@ export const SECRET_KEYS = {
     TABBY: 'api_key_tabby',
     OPENAI: 'api_key_openai',
     AGENTROUTER: 'api_key_agentrouter',
+    VENICE: 'api_key_venice',
     NOVEL: 'api_key_novel',
     CLAUDE: 'api_key_claude',
     DEEPL: 'deepl',

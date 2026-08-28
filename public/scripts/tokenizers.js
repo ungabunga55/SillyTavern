@@ -711,10 +711,12 @@ export function getTokenizerModel() {
         return 'gpt-3.5-turbo';
     }
 
-    if ([chat_completion_sources.REQUESTY, chat_completion_sources.AGENTROUTER].includes(oai_settings.chat_completion_source)) {
+    if ([chat_completion_sources.REQUESTY, chat_completion_sources.AGENTROUTER, chat_completion_sources.VENICE].includes(oai_settings.chat_completion_source)) {
         const selectedModel = oai_settings.chat_completion_source === chat_completion_sources.AGENTROUTER
             ? oai_settings.agentrouter_model
-            : oai_settings.requesty_model;
+            : oai_settings.chat_completion_source === chat_completion_sources.VENICE
+                ? oai_settings.venice_model
+                : oai_settings.requesty_model;
         const model = String(selectedModel || '').toLowerCase();
 
         if (model.includes('gpt-4o') || model.includes('gpt-4.1') || model.includes('gpt-4.5') || model.includes('gpt-5') || model.includes('gpt-oss')) {

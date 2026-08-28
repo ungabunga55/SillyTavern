@@ -270,7 +270,7 @@ import { initServerHistory } from './scripts/server-history.js';
 import { initSettingsSearch } from './scripts/setting-search.js';
 import { initBulkEdit } from './scripts/bulk-edit.js';
 import { getContext } from './scripts/st-context.js';
-import { extractClaudeThinkingBlocks, extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
+import { extractClaudeThinkingBlocks, extractReasoningDetailsFromData, extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
 import { accountStorage } from './scripts/util/AccountStorage.js';
 import { initWelcomeScreen, openPermanentAssistantChat, openPermanentAssistantCard, getPermanentAssistantAvatar } from './scripts/welcome-screen.js';
 import { initDataMaid } from './scripts/data-maid.js';
@@ -3759,6 +3759,8 @@ class StreamingProcessor {
         this.images = [];
         /** @type {string?} */
         this.reasoningSignature = null;
+        /** @type {object[]} Opaque reasoning metadata to preserve for Venice. */
+        this.reasoningDetails = [];
         /** @type {string} Reasoning text to preserve in tool-call chains. */
         this.toolReasoning = '';
         /** @type {object[]} Complete Claude thinking blocks. */
@@ -3945,6 +3947,16 @@ class StreamingProcessor {
             message.extra.claude_thinking_blocks = structuredClone(this.claudeThinkingBlocks);
         }
 
+        if (this.reasoningDetails.length > 0) {
+            message.extra = message.extra || {};
+            message.extra.venice_reasoning_details = structuredClone(this.reasoningDetails);
+        }
+
+        if (oai_settings.chat_completion_source === chat_completion_sources.VENICE && oai_settings.venice_preserved_reasoning && this.toolReasoning) {
+            message.extra = message.extra || {};
+            message.extra.venice_reasoning_content = this.toolReasoning;
+        }
+
         if (Array.isArray(this.swipes) && this.swipes.length > 0) {
             const swipeInfoExtra = structuredClone(message.extra ?? {});
             delete swipeInfoExtra.token_count;
@@ -4078,6 +4090,9 @@ class StreamingProcessor {
                 this.toolReasoning = state?.toolReasoning || this.reasoningHandler.reasoning;
                 this.images = state?.images ?? [];
                 this.reasoningSignature = state?.signature ?? null;
+                this.reasoningDetails = Array.isArray(state?.reasoningDetails)
+                    ? structuredClone(state.reasoningDetails.filter(Boolean))
+                    : [];
                 this.claudeThinkingBlocks = Array.isArray(state?.claudeThinkingBlocks)
                     ? structuredClone(state.claudeThinkingBlocks.filter(Boolean))
                     : [];
@@ -5606,6 +5621,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 }
                 const invocationResult = await ToolManager.invokeFunctionTools(streamingProcessor.toolCalls, {
                     reasoningText: streamingProcessor.toolReasoning || streamingProcessor.reasoningHandler.reasoning,
+                    reasoningDetails: streamingProcessor.reasoningDetails,
                 });
                 const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
                 if (hasToolCalls) {
@@ -5678,6 +5694,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         let toolReasoning = reasoning;
         let imageUrls = extractImagesFromData(data);
         const reasoningSignature = extractReasoningSignatureFromData(data);
+        const reasoningDetails = extractReasoningDetailsFromData(data);
         const claudeThinkingBlocks = extractClaudeThinkingBlocks(data);
         kobold_horde_model = title;
 
@@ -5705,6 +5722,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         } else {
             toolReasoning = reasoning;
         }
+        const veniceReasoningContent = oai_settings.chat_completion_source === chat_completion_sources.VENICE && oai_settings.venice_preserved_reasoning
+            ? toolReasoning
+            : '';
 
         if (isContinue) {
             continue_mag = promptReasoning.removePrefix(continue_mag);
@@ -5729,9 +5749,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         } else {
             // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
             if (originalType !== 'continue') {
-                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, claudeThinkingBlocks }));
+                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks }));
             } else {
-                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, claudeThinkingBlocks }));
+                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks }));
             }
 
             // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
@@ -5742,7 +5762,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             const hasToolCalls = ToolManager.hasToolCalls(data);
             const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(getMessage) && !reasoning;
             hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
-            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: toolReasoning });
+            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: toolReasoning, reasoningDetails });
             const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
             if (hasToolCalls) {
                 if (shouldStopGeneration) {
@@ -6871,13 +6891,15 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {string} [reasoning] Message reasoning
  * @property {string[]} [imageUrls] Links to images
  * @property {string?} [reasoningSignature] Encrypted signature of the reasoning text
+ * @property {object[]} [reasoningDetails] Opaque Venice reasoning metadata
+ * @property {string} [veniceReasoningContent] Hidden Venice reasoning preserved for later turns
  * @property {object[]} [claudeThinkingBlocks] Complete opaque Claude thinking blocks
  *
  * @typedef {object} SaveReplyResult
  * @property {string} type Type of generation
  * @property {string} getMessage Generated message
  */
-export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, claudeThinkingBlocks = [] }) {
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, reasoningDetails = [], veniceReasoningContent = '', claudeThinkingBlocks = [] }) {
     // Backward compatibility
     if (arguments.length > 1 && typeof arguments[0] !== 'object') {
         console.trace('saveReply called with positional arguments. Please use an object instead.');
@@ -6904,6 +6926,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         reasoning = '';
     }
     claudeThinkingBlocks = Array.isArray(claudeThinkingBlocks) ? structuredClone(claudeThinkingBlocks) : [];
+    reasoningDetails = Array.isArray(reasoningDetails) ? structuredClone(reasoningDetails) : [];
 
     let oldMessage = '';
     const generationFinished = new Date();
@@ -6929,6 +6952,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
             lastMessage.extra.reasoning = reasoning;
             lastMessage.extra.reasoning_duration = null;
             lastMessage.extra.reasoning_signature = reasoningSignature;
+            if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
+            else delete lastMessage.extra.venice_reasoning_details;
+            if (veniceReasoningContent) lastMessage.extra.venice_reasoning_content = veniceReasoningContent;
+            else delete lastMessage.extra.venice_reasoning_content;
             lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
             await processImageAttachment(lastMessage, { imageUrls });
             if (power_user.message_token_count_enabled) {
@@ -6955,6 +6982,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.reasoning = reasoning;
         lastMessage.extra.reasoning_duration = null;
         lastMessage.extra.reasoning_signature = reasoningSignature;
+        if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
+        else delete lastMessage.extra.venice_reasoning_details;
+        if (veniceReasoningContent) lastMessage.extra.venice_reasoning_content = veniceReasoningContent;
+        else delete lastMessage.extra.venice_reasoning_content;
         lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         await processImageAttachment(lastMessage, { imageUrls });
         if (power_user.message_token_count_enabled) {
@@ -6977,6 +7008,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.model = getGeneratingModel();
         lastMessage.extra.reasoning += reasoning;
         lastMessage.extra.reasoning_signature = reasoningSignature;
+        if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
+        else delete lastMessage.extra.venice_reasoning_details;
+        if (veniceReasoningContent) lastMessage.extra.venice_reasoning_content = veniceReasoningContent;
+        else delete lastMessage.extra.venice_reasoning_content;
         lastMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         await processImageAttachment(lastMessage, { imageUrls });
         // We don't know if the reasoning duration extended, so we don't update it here on purpose.
@@ -7001,6 +7036,8 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         newMessage.extra.reasoning = reasoning;
         newMessage.extra.reasoning_duration = null;
         newMessage.extra.reasoning_signature = reasoningSignature;
+        if (reasoningDetails.length > 0) newMessage.extra.venice_reasoning_details = reasoningDetails;
+        if (veniceReasoningContent) newMessage.extra.venice_reasoning_content = veniceReasoningContent;
         newMessage.extra.claude_thinking_blocks = claudeThinkingBlocks;
         if (power_user.trim_spaces) {
             getMessage = getMessage.trim();

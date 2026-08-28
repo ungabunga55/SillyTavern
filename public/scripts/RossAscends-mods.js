@@ -388,6 +388,7 @@ function RA_autoconnect(PrevApi) {
                     || ((secret_state[SECRET_KEYS.CLAUDE] || oai_settings.reverse_proxy) && oai_settings.chat_completion_source == chat_completion_sources.CLAUDE)
                     || (secret_state[SECRET_KEYS.OPENROUTER] && oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER)
                     || (secret_state[SECRET_KEYS.AGENTROUTER] && oai_settings.chat_completion_source == chat_completion_sources.AGENTROUTER)
+                    || (secret_state[SECRET_KEYS.VENICE] && oai_settings.chat_completion_source == chat_completion_sources.VENICE)
                     || (secret_state[SECRET_KEYS.REQUESTY] && oai_settings.chat_completion_source == chat_completion_sources.REQUESTY)
                     || (secret_state[SECRET_KEYS.AI21] && oai_settings.chat_completion_source == chat_completion_sources.AI21)
                     || (secret_state[SECRET_KEYS.MAKERSUITE] && oai_settings.chat_completion_source == chat_completion_sources.MAKERSUITE)

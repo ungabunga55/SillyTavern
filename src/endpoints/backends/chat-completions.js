@@ -78,9 +78,11 @@ import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
 import { getOpenRouterSessionId } from './openrouter-cache.js';
 import { fetchFeatherlessModels } from './featherless.js';
+import { buildVeniceParameters, deriveVenicePromptCacheKey, normalizeVeniceModels } from './venice.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
 const API_AGENTROUTER = 'https://agentrouter.org/v1';
+const API_VENICE = 'https://api.venice.ai/api/v1';
 const API_CLAUDE = 'https://api.anthropic.com/v1';
 const API_MISTRAL = 'https://api.mistral.ai/v1';
 const API_COHERE_V1 = 'https://api.cohere.ai/v1';
@@ -3359,6 +3361,11 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = API_AGENTROUTER;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.AGENTROUTER, request.body.secret_id);
             headers = { ...AGENTROUTER_HEADERS };
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.VENICE) {
+            apiUrl = API_VENICE;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.VENICE, request.body.secret_id);
+            headers = {};
+            queryParams = { type: 'text' };
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
@@ -3681,6 +3688,21 @@ router.post('/status', async function (request, statusResponse) {
                 data = { data };
             }
 
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.VENICE) {
+                let traits = {};
+                try {
+                    const traitsUrl = new URL(urlJoin(apiUrl, '/models/traits'));
+                    traitsUrl.searchParams.set('type', 'text');
+                    const traitsResponse = await fetch(traitsUrl, { method: 'GET', headers: requestHeaders });
+                    if (traitsResponse.ok) {
+                        traits = (await traitsResponse.json())?.data ?? {};
+                    }
+                } catch (error) {
+                    console.warn('Unable to load Venice model traits:', error.message || error);
+                }
+                data = { ...data, data: normalizeVeniceModels(data, traits) };
+            }
+
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CHUTES && Array.isArray(data?.data)) {
                 data.data = data.data
                     .filter(model => model?.id)
@@ -3903,6 +3925,61 @@ router.post('/generate', async function (request, response) {
             headers = { ...AGENTROUTER_HEADERS };
             bodyParams = {};
             embedOpenRouterMedia(request.body.messages, { audio: true, video: false });
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.VENICE) {
+            apiUrl = API_VENICE;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.VENICE, request.body.secret_id);
+            headers = {};
+            for (const message of Array.isArray(request.body.messages) ? request.body.messages : []) {
+                if (message?.role !== 'assistant') {
+                    continue;
+                }
+                if (typeof message.reasoning === 'string' && !message.reasoning_content) {
+                    message.reasoning_content = message.reasoning;
+                }
+                delete message.reasoning;
+                if (message.signature && !message.thought_signature) {
+                    message.thought_signature = message.signature;
+                }
+                delete message.signature;
+                if (Array.isArray(message.tool_calls)) {
+                    const thoughtSignature = message.tool_calls.find(toolCall => toolCall?.signature)?.signature;
+                    if (thoughtSignature && !message.thought_signature) {
+                        message.thought_signature = thoughtSignature;
+                    }
+                    message.tool_calls.forEach(toolCall => delete toolCall.signature);
+                }
+                for (const part of Array.isArray(message.content) ? message.content : []) {
+                    if (part?.image_url && typeof part.image_url === 'object') {
+                        delete part.image_url.detail;
+                    }
+                    if (part?.video_url && typeof part.video_url === 'object') {
+                        delete part.video_url.detail;
+                    }
+                }
+            }
+            const chatId = typeof request.body.chat_id === 'string' ? request.body.chat_id.slice(0, 512) : '';
+            const promptCacheKey = request.body.venice_prompt_caching && chatId
+                ? deriveVenicePromptCacheKey(
+                    getCookieSecret(globalThis.DATA_ROOT),
+                    typeof request.user?.profile?.handle === 'string' ? request.user.profile.handle : '',
+                    chatId,
+                )
+                : undefined;
+            bodyParams = {
+                top_k: request.body.top_k,
+                min_p: request.body.min_p,
+                repetition_penalty: request.body.repetition_penalty,
+                reasoning_effort: request.body.venice_disable_thinking ? undefined : request.body.reasoning_effort,
+                verbosity: request.body.verbosity,
+                prompt_cache_key: promptCacheKey,
+                prompt_cache_retention: promptCacheKey ? request.body.venice_prompt_cache_retention : undefined,
+                venice_parameters: buildVeniceParameters(request.body),
+            };
+            if (request.body.logprobs > 0) {
+                bodyParams['top_logprobs'] = request.body.logprobs;
+                bodyParams['logprobs'] = true;
+            }
+            embedOpenRouterMedia(request.body.messages, { audio: true, video: true });
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER) {
             apiUrl = 'https://openrouter.ai/api/v1';
             apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER, request.body.secret_id);
@@ -4528,6 +4605,11 @@ router.post('/generate', async function (request, response) {
             }
         }
 
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.VENICE) {
+            delete requestBody.max_tokens;
+            delete requestBody.logit_bias;
+        }
+
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CUSTOM) {
             excludeKeysByYaml(requestBody, request.body.custom_exclude_body);
         }
@@ -4568,7 +4650,10 @@ router.post('/generate', async function (request, response) {
             const responseText = await fetchResponse.text();
             const errorData = tryParse(responseText);
 
-            const message = errorData?.error?.message || fetchResponse.statusText || 'Unknown error occurred';
+            const message = errorData?.error?.message
+                || (typeof errorData?.error === 'string' ? errorData.error : '')
+                || fetchResponse.statusText
+                || 'Unknown error occurred';
             const quota_error = fetchResponse.status === 429 && errorData?.error?.type === 'insufficient_quota';
             console.error('Chat completion request error: ', message, responseText);
 

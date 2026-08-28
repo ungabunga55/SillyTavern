@@ -154,6 +154,7 @@ export function extractReasoningFromData(data, {
                 case chat_completion_sources.NANOGPT:
                 case chat_completion_sources.NVIDIA:
                 case chat_completion_sources.AGENTROUTER:
+                case chat_completion_sources.VENICE:
                 case chat_completion_sources.REQUESTY:
                 case chat_completion_sources.SILICONFLOW:
                 case chat_completion_sources.ZAI:
@@ -220,9 +221,14 @@ export function extractReasoningSignatureFromData(data, {
     const source = chatCompletionSource ?? oai_settings.chat_completion_source;
     const isGemini = source === chat_completion_sources.MAKERSUITE || source === chat_completion_sources.VERTEXAI;
     const isOpenRouter = source === chat_completion_sources.OPENROUTER;
+    const isVenice = source === chat_completion_sources.VENICE;
 
-    if (!isGemini && !isOpenRouter) {
+    if (!isGemini && !isOpenRouter && !isVenice) {
         return null;
+    }
+
+    if (isVenice && typeof data?.choices?.[0]?.message?.thought_signature === 'string') {
+        return data.choices[0].message.thought_signature;
     }
 
     // OpenRouter format: reasoning_details array with type "reasoning.encrypted" (exclude tool calls)
@@ -236,14 +242,32 @@ export function extractReasoningSignatureFromData(data, {
 
     // Direct Gemini format: Extract from responseContent.parts if available (only text parts)
     if (isGemini && Array.isArray(data?.responseContent?.parts)) {
-        data.responseContent.parts.forEach((part) => {
-            if (part.thoughtSignature && typeof part.text === 'string') {
-                return part.thoughtSignature;
-            }
-        });
+        const signedTextPart = data.responseContent.parts.find(part => part.thoughtSignature && typeof part.text === 'string');
+        return signedTextPart?.thoughtSignature ?? null;
     }
 
     return null;
+}
+
+/**
+ * Extracts Venice reasoning metadata that must be replayed unchanged.
+ * @param {object} data Response data
+ * @param {object} [options] Optional source overrides
+ * @param {string|null} [options.mainApi] Override for main API
+ * @param {string|null} [options.chatCompletionSource] Override for chat completion source
+ * @returns {object[]} Venice reasoning details
+ */
+export function extractReasoningDetailsFromData(data, {
+    mainApi = null,
+    chatCompletionSource = null,
+} = {}) {
+    const source = chatCompletionSource ?? oai_settings.chat_completion_source;
+    if ((mainApi ?? main_api) !== 'openai' || source !== chat_completion_sources.VENICE) {
+        return [];
+    }
+
+    const details = data?.choices?.[0]?.message?.reasoning_details;
+    return Array.isArray(details) ? structuredClone(details) : [];
 }
 
 /**

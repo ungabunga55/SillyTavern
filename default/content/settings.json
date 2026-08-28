@@ -623,6 +623,7 @@
         "wi_format": "{0}",
         "openai_model": "gpt-4-turbo",
         "agentrouter_model": "gpt-5.5",
+        "venice_model": "",
         "claude_model": "claude-sonnet-4-5",
         "ai21_model": "jamba-large",
         "openrouter_model": "OR_Website",

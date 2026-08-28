@@ -21,6 +21,8 @@ import { isTrueBoolean } from './utils.js';
  * @property {string} result - The result of the tool invocation.
  * @property {string?} signature - The thought signature associated with the tool invocation.
  * @property {string?} reasoning - The plaintext reasoning associated with this tool call turn.
+ * @property {object[]?} reasoningDetails - Opaque reasoning metadata associated with this tool call turn.
+ * @property {boolean} [preserveHistory] Whether reasoning may be replayed after the active tool chain.
  * @property {boolean} [error] - Whether the tool invocation failed.
  */
 
@@ -521,6 +523,11 @@ export class ToolManager {
                 }
             }
         }
+        if (toolSignatures.__default) {
+            toolCalls.flat().filter(Boolean).forEach(toolCall => {
+                toolCall.signature ??= toolSignatures.__default;
+            });
+        }
         const cohereToolEvents = ['message-start', 'tool-call-start', 'tool-call-delta', 'tool-call-end'];
         if (cohereToolEvents.includes(parsed?.type) && typeof parsed?.delta?.message === 'object') {
             const choiceIndex = 0;
@@ -693,12 +700,15 @@ export class ToolManager {
                     return currentModel.metadata?.function_call;
                 case chat_completion_sources.WORKERS_AI:
                     return Array.isArray(currentModel.properties) && currentModel.properties.some(p => p.property_id === 'function_calling' && p.value === 'true');
+                case chat_completion_sources.VENICE:
+                    return currentModel.model_spec?.capabilities?.supportsFunctionCalling === true;
             }
         }
 
         const supportedSources = [
             chat_completion_sources.OPENAI,
             chat_completion_sources.AGENTROUTER,
+            chat_completion_sources.VENICE,
             chat_completion_sources.CUSTOM,
             chat_completion_sources.MISTRALAI,
             chat_completion_sources.CLAUDE,
@@ -809,6 +819,10 @@ export class ToolManager {
                     }
                 }
 
+                if (oai_settings.chat_completion_source === chat_completion_sources.VENICE && choice.message.thought_signature) {
+                    choice.message.tool_calls.forEach(toolCall => toolCall.signature = choice.message.thought_signature);
+                }
+
                 return choice.message.tool_calls;
             }
         }
@@ -843,7 +857,7 @@ export class ToolManager {
      * @param {any} data Reply data
      * @returns {Promise<ToolInvocationResult>} Successful tool invocations
      */
-    static async invokeFunctionTools(data, { reasoningText = null } = {}) {
+    static async invokeFunctionTools(data, { reasoningText = null, reasoningDetails = null } = {}) {
         /** @type {ToolInvocationResult} */
         const result = {
             invocations: [],
@@ -888,6 +902,10 @@ export class ToolManager {
                         error: true,
                         signature: toolCall.signature || null,
                         reasoning: reasoningText || null,
+                        ...(oai_settings.chat_completion_source === chat_completion_sources.VENICE ? {
+                            reasoningDetails: Array.isArray(reasoningDetails) ? structuredClone(reasoningDetails) : null,
+                            preserveHistory: Boolean(oai_settings.venice_preserved_reasoning),
+                        } : {}),
                     });
                 }
                 continue;
@@ -908,6 +926,10 @@ export class ToolManager {
                 error: false,
                 signature: toolCall.signature || null,
                 reasoning: reasoningText || null,
+                ...(oai_settings.chat_completion_source === chat_completion_sources.VENICE ? {
+                    reasoningDetails: Array.isArray(reasoningDetails) ? structuredClone(reasoningDetails) : null,
+                    preserveHistory: Boolean(oai_settings.venice_preserved_reasoning),
+                } : {}),
             };
             result.invocations.push(invocation);
         }

@@ -187,6 +187,7 @@ export const VERTEX_SAFETY = [
 export const CHAT_COMPLETION_SOURCES = {
     OPENAI: 'openai',
     AGENTROUTER: 'agentrouter',
+    VENICE: 'venice',
     CLAUDE: 'claude',
     OPENROUTER: 'openrouter',
     AI21: 'ai21',

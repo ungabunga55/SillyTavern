@@ -185,6 +185,7 @@ export let model_list = [];
 export const chat_completion_sources = {
     OPENAI: 'openai',
     AGENTROUTER: 'agentrouter',
+    VENICE: 'venice',
     CLAUDE: 'claude',
     OPENROUTER: 'openrouter',
     AI21: 'ai21',
@@ -433,6 +434,9 @@ function isFeatherlessAlwaysOnThinkingModel(model) {
  * @returns {boolean} Whether hidden reasoning should be captured
  */
 export function shouldCaptureReasoningForTools(source, model) {
+    if (source === chat_completion_sources.VENICE) {
+        return true;
+    }
     if (source === chat_completion_sources.MOONSHOT) {
         return isMoonshotKimiAlwaysOnThinkingModel(model);
     }
@@ -552,6 +556,7 @@ function isClaudeAdaptiveThinkingModel(model) {
 const interleaved_reasoning_providers = [
     chat_completion_sources.OPENROUTER,
     chat_completion_sources.CUSTOM,
+    chat_completion_sources.VENICE,
 ];
 
 export const openai_api_types = {
@@ -632,6 +637,20 @@ export const settingsToUpdate = {
     xai_prompt_caching: ['#xai_prompt_caching', 'xai_prompt_caching', true, true],
     openai_model: ['#model_openai_select', 'openai_model', false, true],
     agentrouter_model: ['#model_agentrouter_select', 'agentrouter_model', false, true],
+    venice_model: ['#model_venice_select', 'venice_model', false, true],
+    venice_character_slug: ['#venice_character_slug', 'venice_character_slug', false, false],
+    venice_strip_thinking_response: ['#venice_strip_thinking_response', 'venice_strip_thinking_response', true, false],
+    venice_disable_thinking: ['#venice_disable_thinking', 'venice_disable_thinking', true, false],
+    venice_web_search: ['#venice_web_search', 'venice_web_search', false, false],
+    venice_enable_web_scraping: ['#venice_enable_web_scraping', 'venice_enable_web_scraping', true, false],
+    venice_enable_web_citations: ['#venice_enable_web_citations', 'venice_enable_web_citations', true, false],
+    venice_include_system_prompt: ['#venice_include_system_prompt', 'venice_include_system_prompt', true, false],
+    venice_enable_x_search: ['#venice_enable_x_search', 'venice_enable_x_search', true, false],
+    venice_prompt_caching: ['#venice_prompt_caching', 'venice_prompt_caching', true, false],
+    venice_prompt_cache_retention: ['#venice_prompt_cache_retention', 'venice_prompt_cache_retention', false, false],
+    venice_preserved_reasoning: ['#venice_preserved_reasoning', 'venice_preserved_reasoning', true, false],
+    venice_preserved_reasoning_all: ['#venice_preserved_reasoning_all', 'venice_preserved_reasoning_all', true, false],
+    venice_preserved_reasoning_count: ['#venice_preserved_reasoning_count', 'venice_preserved_reasoning_count', false, false],
     claude_model: ['#model_claude_select', 'claude_model', false, true],
     openrouter_model: ['#model_openrouter_select', 'openrouter_model', false, true],
     openrouter_model_sort: ['#openrouter_model_sort', 'openrouter_model_sort', false, true],
@@ -811,6 +830,20 @@ const default_settings = {
     xai_api_type: openai_api_types.CHAT_COMPLETIONS,
     openai_model: 'gpt-5.6-terra',
     agentrouter_model: 'gpt-5.5',
+    venice_model: '',
+    venice_character_slug: '',
+    venice_strip_thinking_response: false,
+    venice_disable_thinking: false,
+    venice_web_search: 'off',
+    venice_enable_web_scraping: false,
+    venice_enable_web_citations: false,
+    venice_include_system_prompt: false,
+    venice_enable_x_search: false,
+    venice_prompt_caching: false,
+    venice_prompt_cache_retention: 'default',
+    venice_preserved_reasoning: false,
+    venice_preserved_reasoning_all: false,
+    venice_preserved_reasoning_count: 3,
     claude_model: 'claude-sonnet-4-5',
     google_model: 'gemini-2.5-pro',
     vertexai_model: 'gemini-2.5-pro',
@@ -1023,8 +1056,20 @@ function setOpenAIMessages(chat) {
         const isSameModel = originApi === currentApi && originModel === currentModel;
         // In group chats, only include reasoning from the currently generating character
         const isOtherGroupMember = selected_group && chat[j].name !== name2;
-        const signature = isSameModel && !isOtherGroupMember && !useNativeResponses ? chat[j]?.extra?.reasoning_signature : null;
-        const reasoning = isSameModel && !isOtherGroupMember && !useNativeResponses ? String(chat[j]?.extra?.reasoning ?? '') : '';
+        const isVenice = currentApi === chat_completion_sources.VENICE;
+        const preserveVeniceReasoning = isVenice
+            && oai_settings.venice_preserved_reasoning
+            && typeof chat[j]?.extra?.venice_reasoning_content === 'string'
+            && chat[j].extra.venice_reasoning_content.length > 0;
+        const signature = isSameModel && !isOtherGroupMember && !useNativeResponses && (!isVenice || preserveVeniceReasoning) ? chat[j]?.extra?.reasoning_signature : null;
+        const visibleReasoning = String(chat[j]?.extra?.reasoning ?? '');
+        const preservedReasoning = isVenice
+            ? (preserveVeniceReasoning ? String(chat[j].extra.venice_reasoning_content) : '')
+            : visibleReasoning;
+        const reasoning = isSameModel && !isOtherGroupMember && !useNativeResponses ? preservedReasoning : '';
+        const reasoningDetails = isSameModel && !isOtherGroupMember && preserveVeniceReasoning && Array.isArray(chat[j]?.extra?.venice_reasoning_details)
+            ? structuredClone(chat[j].extra.venice_reasoning_details)
+            : [];
         const claudeThinkingBlocks = isSameModel && !isOtherGroupMember && currentApi === chat_completion_sources.CLAUDE && Array.isArray(chat[j]?.extra?.claude_thinking_blocks)
             ? structuredClone(chat[j].extra.claude_thinking_blocks)
             : [];
@@ -1032,16 +1077,17 @@ function setOpenAIMessages(chat) {
         // Remove reasoning metadata from invocations if the API/model don't match
         if (Array.isArray(invocations) && invocations.length > 0) {
             invocations.forEach((invocation, index) => {
-                if ((!isSameModel || useNativeResponses) && (invocation.signature || invocation.reasoning)) {
+                if ((!isSameModel || useNativeResponses) && (invocation.signature || invocation.reasoning || invocation.reasoningDetails)) {
                     const cloneInvocation = structuredClone(invocation);
                     delete cloneInvocation.signature;
                     delete cloneInvocation.reasoning;
+                    delete cloneInvocation.reasoningDetails;
                     invocations[index] = cloneInvocation;
                 }
             });
         }
 
-        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning, 'claudeThinkingBlocks': claudeThinkingBlocks };
+        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning, 'reasoningDetails': reasoningDetails, 'claudeThinkingBlocks': claudeThinkingBlocks };
         j++;
     }
 
@@ -1343,8 +1389,11 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
         && isFeatherlessReasoningHistoryModel(reasoningModel);
     const isZaiAlwaysOnThinking = oai_settings.chat_completion_source === chat_completion_sources.ZAI
         && isZaiAlwaysOnThinkingModel(reasoningModel);
+    const isVenice = oai_settings.chat_completion_source === chat_completion_sources.VENICE;
     const supportsThinkingHistory = isMoonshotModel || isFeatherlessReasoningModel || isZaiAlwaysOnThinking;
-    const preserveThinkingHistory = oai_settings.moonshot_preserved_thinking && (isMoonshotModel || isFeatherlessReasoningModel);
+    const preserveMoonshotThinkingHistory = oai_settings.moonshot_preserved_thinking && (isMoonshotModel || isFeatherlessReasoningModel);
+    const preserveVeniceReasoning = isVenice && oai_settings.venice_preserved_reasoning;
+    const preserveThinkingHistory = preserveMoonshotThinkingHistory || preserveVeniceReasoning;
     const isProviderThinkingEnabled = supportsThinkingHistory && (
         preserveThinkingHistory
         || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
@@ -1354,17 +1403,23 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     );
     const preservedThinkingPrompts = new Set();
     if (preserveThinkingHistory) {
-        let remaining = oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount();
+        let remaining = preserveVeniceReasoning
+            ? (oai_settings.venice_preserved_reasoning_all ? Infinity : getVenicePreservedReasoningCount())
+            : (oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount());
         for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
             const candidate = messages[idx];
             if (candidate?.role !== 'assistant') {
                 continue;
             }
 
-            const reasoning = String(candidate.reasoning
-                || candidate.invocations?.find(invocation => typeof invocation?.reasoning === 'string' && invocation.reasoning.length > 0)?.reasoning
-                || '');
-            if (reasoning.trim()) {
+            const invocationWithReasoning = candidate.invocations?.find(invocation => typeof invocation?.reasoning === 'string' && invocation.reasoning.length > 0);
+            const invocationReasoning = preserveVeniceReasoning && !invocationWithReasoning?.preserveHistory
+                ? ''
+                : invocationWithReasoning?.reasoning;
+            const reasoning = String(candidate.reasoning || invocationReasoning || '');
+            const hasOpaqueReasoning = preserveVeniceReasoning && (candidate.signature || candidate.reasoningDetails?.length);
+            const hasInvocationReasoning = preserveVeniceReasoning && candidate.invocations?.some(invocation => invocation?.preserveHistory && (invocation.signature || invocation.reasoningDetails?.length));
+            if (reasoning.trim() || hasOpaqueReasoning || hasInvocationReasoning) {
                 preservedThinkingPrompts.add(candidate);
                 remaining--;
             }
@@ -1384,12 +1439,12 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     }
     const isToolReasoningProvider = isProviderThinkingEnabled || interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     let toolReasoningMode = tool_reasoning_modes.DISABLED;
-    if (isProviderThinkingEnabled) {
+    if (isProviderThinkingEnabled || isVenice) {
         toolReasoningMode = tool_reasoning_modes.ACTIVE_CHAIN;
     } else if (isToolReasoningProvider) {
         toolReasoningMode = getEffectiveToolReasoningMode();
     }
-    const includeToolReasoning = preserveThinkingHistory || toolReasoningMode !== tool_reasoning_modes.DISABLED;
+    const includeToolReasoning = isVenice || preserveThinkingHistory || toolReasoningMode !== tool_reasoning_modes.DISABLED;
     const lastUserIdx = messages.findLastIndex(x => x.role === 'user');
 
     // Insert chat messages as long as there is budget available
@@ -1443,9 +1498,11 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
 
         if (canUseTools && Array.isArray(chatPrompt.invocations)) {
             const promptIdx = messages.indexOf(chatPrompt);
-            const reasoningIsEligible = preserveThinkingHistory
-                ? preservedThinkingPrompts.has(chatPrompt)
-                : toolReasoningMode !== tool_reasoning_modes.DISABLED && promptIdx > lastUserIdx;
+            const reasoningIsEligible = isVenice
+                ? promptIdx > lastUserIdx || preservedThinkingPrompts.has(chatPrompt)
+                : preserveThinkingHistory
+                    ? preservedThinkingPrompts.has(chatPrompt)
+                    : toolReasoningMode !== tool_reasoning_modes.DISABLED && promptIdx > lastUserIdx;
             let previousAssistantReasoning = '';
             if (reasoningIsEligible) {
                 if (toolReasoningMode === tool_reasoning_modes.ACTIVE_CHAIN) {
@@ -1491,6 +1548,10 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
                 const clone = structuredClone(invocation);
                 if (!reasoningIsEligible) {
                     delete clone.reasoning;
+                    if (isVenice) {
+                        delete clone.reasoningDetails;
+                        delete clone.signature;
+                    }
                 } else if (previousAssistantReasoning && !clone.reasoning) {
                     // Fall back to adjacent assistant-text reasoning only when the invocation has none of its own.
                     clone.reasoning = previousAssistantReasoning;
@@ -1512,12 +1573,21 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             continue;
         }
 
-        if (includeSignature && chatPrompt.signature) {
+        const sendPreservedReasoning = preservedThinkingPrompts.has(chatPrompt);
+        if (includeSignature && chatPrompt.signature && (!isVenice || sendPreservedReasoning)) {
             chatMessage.signature = chatPrompt.signature;
         }
 
-        if (preservedThinkingPrompts.has(chatPrompt) && chatPrompt.reasoning) {
+        const hasVeniceReasoningDetails = oai_settings.chat_completion_source === chat_completion_sources.VENICE
+            && sendPreservedReasoning
+            && Array.isArray(chatPrompt.reasoningDetails)
+            && chatPrompt.reasoningDetails.length > 0;
+        if (sendPreservedReasoning && chatPrompt.reasoning) {
             await chatMessage.setReasoning(chatPrompt.reasoning);
+        }
+
+        if (hasVeniceReasoningDetails) {
+            await chatMessage.setReasoningDetails(chatPrompt.reasoningDetails);
         }
 
         if (preservedClaudeThinkingPrompts.has(chatPrompt)) {
@@ -2171,6 +2241,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.openai_model;
         case chat_completion_sources.AGENTROUTER:
             return settings.agentrouter_model;
+        case chat_completion_sources.VENICE:
+            return settings.venice_model;
         case chat_completion_sources.MAKERSUITE:
             return settings.google_model;
         case chat_completion_sources.VERTEXAI:
@@ -2598,6 +2670,23 @@ function saveModelList(data) {
         }
 
         $('#model_agentrouter_select').val(oai_settings.agentrouter_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.VENICE) {
+        $('#model_venice_select').empty();
+        model_list.forEach((model) => {
+            const name = model.model_spec?.name;
+            const text = name && name !== model.id ? `${name} (${model.id})` : model.id;
+            const description = [model.model_spec?.description, model.model_spec?.privacy].filter(Boolean).join('\n');
+            $('#model_venice_select').append($('<option>', { value: model.id, text, title: description }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.venice_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.venice_model)) {
+            oai_settings.venice_model = model_list.some(model => model.id === 'default') ? 'default' : model_list[0].id;
+        }
+
+        $('#model_venice_select').val(oai_settings.venice_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.OPENAI) {
@@ -3440,6 +3529,7 @@ function getReasoningEffort(settings = null, model = null) {
     const reasoningEffortSources = [
         chat_completion_sources.OPENAI,
         chat_completion_sources.AGENTROUTER,
+        chat_completion_sources.VENICE,
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.CUSTOM,
         chat_completion_sources.XAI,
@@ -3474,6 +3564,19 @@ function getReasoningEffort(settings = null, model = null) {
     }
 
     function resolveReasoningEffort() {
+        if (settings.chat_completion_source === chat_completion_sources.VENICE) {
+            if (settings.venice_disable_thinking || settings.reasoning_effort === reasoning_effort_types.auto) {
+                return undefined;
+            }
+
+            const currentModel = Array.isArray(model_list) ? model_list.find(m => m.id === model) : null;
+            if (currentModel?.model_spec?.capabilities?.supportsReasoningEffort === false) {
+                return undefined;
+            }
+
+            return settings.reasoning_effort === reasoning_effort_types.min ? 'minimal' : settings.reasoning_effort;
+        }
+
         if (settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
             switch (settings.reasoning_effort) {
                 case reasoning_effort_types.auto:
@@ -3722,6 +3825,7 @@ export async function createGenerationParameters(settings, model, type, messages
     // Sources that support the "seed" parameter
     const seedSupportedSources = [
         chat_completion_sources.OPENAI,
+        chat_completion_sources.VENICE,
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.OPENROUTER,
         chat_completion_sources.MISTRALAI,
@@ -3756,6 +3860,7 @@ export async function createGenerationParameters(settings, model, type, messages
     // Sources that support logprobs
     const logprobsSupportedSources = [
         chat_completion_sources.OPENAI,
+        chat_completion_sources.VENICE,
         chat_completion_sources.AZURE_OPENAI,
         chat_completion_sources.OPENROUTER,
         chat_completion_sources.CUSTOM,
@@ -3932,6 +4037,33 @@ export async function createGenerationParameters(settings, model, type, messages
         if (settings.openrouter_sticky_routing && type !== 'quiet') {
             generate_data.openrouter_sticky_routing = true;
             generate_data.chat_id = getCurrentChatId();
+        }
+    }
+
+    if (settings.chat_completion_source === chat_completion_sources.VENICE) {
+        const modelInfo = Array.isArray(model_list) ? model_list.find(item => item.id === model) : null;
+        const capabilities = modelInfo?.model_spec?.capabilities;
+        generate_data.max_completion_tokens = generate_data.max_tokens;
+        delete generate_data.max_tokens;
+        generate_data.top_k = Number(settings.top_k_openai);
+        generate_data.min_p = Number(settings.min_p_openai);
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
+        generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
+        generate_data.venice_character_slug = String(settings.venice_character_slug || '');
+        generate_data.venice_strip_thinking_response = Boolean(settings.venice_strip_thinking_response);
+        generate_data.venice_disable_thinking = Boolean(settings.venice_disable_thinking);
+        generate_data.venice_web_search = capabilities?.supportsWebSearch === false ? 'off' : String(settings.venice_web_search || 'off');
+        generate_data.venice_enable_web_scraping = Boolean(settings.venice_enable_web_scraping);
+        generate_data.venice_enable_web_citations = Boolean(settings.venice_enable_web_citations);
+        generate_data.venice_include_system_prompt = settings.venice_include_system_prompt !== false;
+        generate_data.venice_enable_x_search = capabilities?.supportsXSearch === true && Boolean(settings.venice_enable_x_search);
+        if (settings.venice_prompt_caching && type !== 'quiet') {
+            generate_data.venice_prompt_caching = true;
+            generate_data.venice_prompt_cache_retention = String(settings.venice_prompt_cache_retention || 'default');
+            generate_data.chat_id = getCurrentChatId();
+        }
+        if (capabilities?.supportsLogProbs === false) {
+            delete generate_data.logprobs;
         }
     }
 
@@ -4504,7 +4636,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {} };
+            const state = { reasoning: '', reasoningDetails: [], toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {} };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -4651,10 +4783,30 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FEATHERLESS].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.VENICE, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FEATHERLESS].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
+        if (chat_completion_source === chat_completion_sources.VENICE) {
+            const reasoningDetails = data?.choices?.[0]?.delta?.reasoning_details ?? data?.choices?.[0]?.message?.reasoning_details ?? [];
+            reasoningDetails.forEach((detail, index) => {
+                const detailIndex = Number.isInteger(detail?.index) ? detail.index : index;
+                state.reasoningDetails[detailIndex] = { ...(state.reasoningDetails[detailIndex] || {}), ...structuredClone(detail) };
+            });
+            const thoughtSignature = data?.choices?.[0]?.delta?.thought_signature
+                ?? data?.choices?.[0]?.message?.thought_signature
+                ?? state.signature;
+            if (thoughtSignature) {
+                state.signature = thoughtSignature;
+                state.toolSignatures.__default = thoughtSignature;
+                const toolCalls = data?.choices?.[0]?.delta?.tool_calls ?? data?.choices?.[0]?.message?.tool_calls ?? [];
+                toolCalls.forEach(toolCall => {
+                    if (toolCall?.id) {
+                        state.toolSignatures[toolCall.id] = thoughtSignature;
+                    }
+                });
+            }
+        }
         if (show_thoughts) {
             state.reasoning += reasoningDelta;
         }
@@ -4739,6 +4891,7 @@ function parseChatCompletionLogprobs(data) {
         case chat_completion_sources.OPENAI:
         case chat_completion_sources.AZURE_OPENAI:
         case chat_completion_sources.OPENROUTER:
+        case chat_completion_sources.VENICE:
         case chat_completion_sources.DEEPSEEK:
         case chat_completion_sources.XAI:
         case chat_completion_sources.CUSTOM:
@@ -5038,10 +5191,13 @@ class Message {
         }));
         const fallbackReasoning = invocations.find(i => typeof i.reasoning === 'string' && i.reasoning.length > 0)?.reasoning || null;
         this.reasoning = includeReasoning ? fallbackReasoning : null;
+        const reasoningDetails = invocations.find(i => Array.isArray(i.reasoningDetails) && i.reasoningDetails.length > 0)?.reasoningDetails;
+        this.reasoning_details = reasoningDetails ? structuredClone(reasoningDetails) : undefined;
         this.tokens = await tokenHandler.countAsync({
             role: this.role,
             tool_calls: JSON.stringify(this.tool_calls),
             ...(this.reasoning ? { reasoning: this.reasoning } : {}),
+            ...(this.reasoning_details ? { reasoning_details: this.reasoning_details } : {}),
         });
     }
 
@@ -5055,6 +5211,16 @@ class Message {
         if (this.reasoning) {
             this.tokens += await tokenHandler.countAsync({ role: this.role, content: this.reasoning });
         }
+    }
+
+    /**
+     * Attach opaque Venice reasoning metadata and include it in prompt budgeting.
+     * @param {object[]} details Reasoning details to replay unchanged
+     * @returns {Promise<void>}
+     */
+    async setReasoningDetails(details) {
+        this.reasoning_details = structuredClone(details);
+        this.tokens += await tokenHandler.countAsync({ role: this.role, reasoning_details: this.reasoning_details });
     }
 
     /**
@@ -5333,6 +5499,7 @@ class MessageCollection {
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
+                    ...(message.reasoning_details?.length && { reasoning_details: message.reasoning_details }),
                     ...(message.claudeThinkingBlocks?.length && { claude_thinking_blocks: message.claudeThinkingBlocks }),
                 });
             }
@@ -5625,6 +5792,7 @@ export class ChatCompletion {
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+                    ...(item.reasoning_details?.length ? { reasoning_details: item.reasoning_details } : {}),
                     ...(item.claudeThinkingBlocks?.length ? { claude_thinking_blocks: item.claudeThinkingBlocks } : {}),
                 };
                 chat.push(message);
@@ -5889,6 +6057,7 @@ function loadOpenAISettings(data, settings) {
     setToolReasoningControls();
     setMoonshotPreservedThinkingControls();
     setClaudePreservedThinkingControls();
+    setVeniceParameterControls();
     ToolManager.RECURSE_LIMIT = oai_settings.tool_call_recurse_limit;
 
     $('#openrouter_providers_chat').val(oai_settings.openrouter_providers).trigger('change.select2');
@@ -5991,6 +6160,20 @@ function setClaudePreservedThinkingControls() {
     $('#claude_preserved_thinking_count')
         .val(oai_settings.claude_preserved_thinking_count)
         .prop('disabled', !oai_settings.claude_preserved_thinking || oai_settings.claude_preserved_thinking_all);
+}
+
+function setVeniceParameterControls() {
+    $('#venice_prompt_cache_retention').prop('disabled', !oai_settings.venice_prompt_caching);
+    oai_settings.venice_preserved_reasoning_count = getVenicePreservedReasoningCount();
+    $('#venice_preserved_reasoning_all').prop('disabled', !oai_settings.venice_preserved_reasoning);
+    $('#venice_preserved_reasoning_count')
+        .val(oai_settings.venice_preserved_reasoning_count)
+        .prop('disabled', !oai_settings.venice_preserved_reasoning || oai_settings.venice_preserved_reasoning_all);
+}
+
+function getVenicePreservedReasoningCount(settings = oai_settings) {
+    const count = Math.trunc(Number(settings.venice_preserved_reasoning_count));
+    return Number.isFinite(count) && count > 0 ? Math.min(count, 1000) : default_settings.venice_preserved_reasoning_count;
 }
 
 async function getStatusOpen() {
@@ -7113,6 +7296,16 @@ async function onModelChange() {
         oai_settings.agentrouter_model = value;
     }
 
+    if ($(this).is('#model_venice_select')) {
+        if (!value || !hasModelsLoaded) {
+            console.debug('Null Venice model selected. Ignoring.');
+            return;
+        }
+
+        console.log('Venice model changed to', value);
+        oai_settings.venice_model = value;
+    }
+
     if ($(this).is('#model_openrouter_select')) {
         if (!value || !hasModelsLoaded) {
             console.debug('Null OR model selected. Ignoring.');
@@ -7406,6 +7599,24 @@ async function onModelChange() {
         $('#openai_max_tokens').val(oai_settings.openai_max_tokens).trigger('input');
         oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.VENICE) {
+        const model = Array.isArray(model_list) ? model_list.find(item => item.id === oai_settings.venice_model) : null;
+        const maxContext = oai_settings.max_context_unlocked
+            ? unlocked_max
+            : Number(model?.context_length || model?.model_spec?.availableContextTokens || max_128k);
+        const maxOutput = Number(model?.max_completion_tokens || model?.model_spec?.maxCompletionTokens || 128000);
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(maxContext, oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        $('#openai_max_tokens').attr('max', maxOutput);
+        oai_settings.openai_max_tokens = Math.min(maxOutput, oai_settings.openai_max_tokens);
+        $('#openai_max_tokens').val(oai_settings.openai_max_tokens).trigger('input');
+        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+        $('#venice_web_search').prop('disabled', model?.model_spec?.capabilities?.supportsWebSearch === false);
+        $('#venice_enable_x_search').prop('disabled', model?.model_spec?.capabilities?.supportsXSearch !== true);
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) {
@@ -7749,6 +7960,7 @@ async function onConnectButtonClick(e) {
     const apiSourceConfig = {
         [chat_completion_sources.OPENROUTER]: { key: SECRET_KEYS.OPENROUTER, selector: '#api_key_openrouter', proxy: false },
         [chat_completion_sources.AGENTROUTER]: { key: SECRET_KEYS.AGENTROUTER, selector: '#api_key_agentrouter', proxy: false },
+        [chat_completion_sources.VENICE]: { key: SECRET_KEYS.VENICE, selector: '#api_key_venice', proxy: false },
         [chat_completion_sources.REQUESTY]: { key: SECRET_KEYS.REQUESTY, selector: '#api_key_requesty', proxy: false },
         [chat_completion_sources.MAKERSUITE]: { key: SECRET_KEYS.MAKERSUITE, selector: '#api_key_makersuite', proxy: true },
         [chat_completion_sources.CLAUDE]: { key: SECRET_KEYS.CLAUDE, selector: '#api_key_claude', proxy: true },
@@ -7831,6 +8043,8 @@ function toggleChatCompletionForms() {
         $('#model_openrouter_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.AGENTROUTER) {
         $('#model_agentrouter_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.VENICE) {
+        $('#model_venice_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.REQUESTY) {
         $('#model_requesty_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.AI21) {
@@ -8080,6 +8294,8 @@ export function isImageInliningSupported() {
             const requestyModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.requesty_model);
             return Boolean(requestyModel?.supports_vision) || visionSupportedModels.some(model => String(oai_settings.requesty_model || '').includes(model));
         }
+        case chat_completion_sources.VENICE:
+            return Boolean(Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.venice_model)?.model_spec?.capabilities?.supportsVision);
         case chat_completion_sources.AGENTROUTER:
             return visionSupportedModels.some(model => String(oai_settings.agentrouter_model || '').includes(model));
         case chat_completion_sources.CUSTOM:
@@ -8168,6 +8384,8 @@ export function isVideoInliningSupported() {
             return videoSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
         case chat_completion_sources.OPENROUTER:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('video'));
+        case chat_completion_sources.VENICE:
+            return Boolean(Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.venice_model)?.model_spec?.capabilities?.supportsVideoInput);
         case chat_completion_sources.META:
             return videoSupportedModels.some(model => oai_settings.meta_model.includes(model));
         case chat_completion_sources.MOONSHOT:
@@ -8214,6 +8432,8 @@ export function isAudioInliningSupported() {
             return audioSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
         case chat_completion_sources.OPENROUTER:
             return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('audio'));
+        case chat_completion_sources.VENICE:
+            return Boolean(Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.venice_model)?.model_spec?.capabilities?.supportsAudioInput);
         case chat_completion_sources.CUSTOM:
             return true;
         default:
@@ -8258,7 +8478,7 @@ export function isReasoningSignatureSupported(settings = oai_settings) {
     const isGoogle = [chat_completion_sources.VERTEXAI, chat_completion_sources.MAKERSUITE].includes(settings.chat_completion_source);
     // Need a more crunchy check for OpenRouter: look for Gemini models
     const isOpenRouterGemini = settings.chat_completion_source === chat_completion_sources.OPENROUTER && /google\/gemini/i.test(settings.openrouter_model);
-    return isGoogle || isOpenRouterGemini;
+    return isGoogle || isOpenRouterGemini || settings.chat_completion_source === chat_completion_sources.VENICE;
 }
 
 /**
@@ -9286,6 +9506,7 @@ export function initOpenAI() {
     $('#vertexai_clear_service_account').on('click', onVertexAIClearServiceAccount);
     $('#model_openrouter_select').on('change', onModelChange);
     $('#model_agentrouter_select').on('change', onModelChange);
+    $('#model_venice_select').on('change', onModelChange);
     $('#model_requesty_select').on('change', onModelChange);
     $('#model_ai21_select').on('change', onModelChange);
     $('#model_mistralai_select').on('change', onModelChange);
@@ -9312,6 +9533,41 @@ export function initOpenAI() {
     $('#azure_openai_model').on('change', onModelChange);
     $('#model_zai_select').on('change', onModelChange);
     $('#model_workers_ai_select').on('change', onModelChange);
+    const veniceInputs = [
+        ['#venice_character_slug', 'venice_character_slug', false],
+        ['#venice_strip_thinking_response', 'venice_strip_thinking_response', true],
+        ['#venice_disable_thinking', 'venice_disable_thinking', true],
+        ['#venice_web_search', 'venice_web_search', false],
+        ['#venice_enable_web_scraping', 'venice_enable_web_scraping', true],
+        ['#venice_enable_web_citations', 'venice_enable_web_citations', true],
+        ['#venice_include_system_prompt', 'venice_include_system_prompt', true],
+        ['#venice_enable_x_search', 'venice_enable_x_search', true],
+        ['#venice_prompt_caching', 'venice_prompt_caching', true],
+        ['#venice_prompt_cache_retention', 'venice_prompt_cache_retention', false],
+        ['#venice_preserved_reasoning', 'venice_preserved_reasoning', true],
+        ['#venice_preserved_reasoning_all', 'venice_preserved_reasoning_all', true],
+    ];
+    veniceInputs.forEach(([selector, setting, isCheckbox]) => {
+        $(selector).on('input', function () {
+            oai_settings[setting] = isCheckbox ? Boolean($(this).prop('checked')) : String($(this).val() || '');
+            setVeniceParameterControls();
+            saveSettingsDebounced();
+        });
+    });
+    $('#venice_preserved_reasoning_count').on('input', function () {
+        const count = Math.trunc(Number($(this).val()));
+        if (Number.isFinite(count) && count > 0) {
+            oai_settings.venice_preserved_reasoning_count = Math.min(count, 1000);
+            saveSettingsDebounced();
+        }
+    }).on('change', function () {
+        oai_settings.venice_preserved_reasoning_count = getVenicePreservedReasoningCount({
+            ...oai_settings,
+            venice_preserved_reasoning_count: $(this).val(),
+        });
+        setVeniceParameterControls();
+        saveSettingsDebounced();
+    });
     $('#settings_preset_openai').on('change', onSettingsPresetChange);
     $('#new_oai_preset').on('click', onNewPresetClick);
     $('#delete_oai_preset').on('click', onDeletePresetClick);
