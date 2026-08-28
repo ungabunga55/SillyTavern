@@ -601,7 +601,7 @@ export async function loadTextGenSettings(data, loadedSettings) {
 
     $('#textgen_type').val(textgenerationwebui_settings.type);
     $('#openrouter_model_sort_textgenerationwebui').val(textgenerationwebui_settings.openrouter_model_sort);
-    $('#openrouter_providers_text').val(textgenerationwebui_settings.openrouter_providers).trigger('change');
+    $('#openrouter_providers_text').val(textgenerationwebui_settings.openrouter_providers).trigger('change.select2');
     $('#openrouter_quantizations_text').val(textgenerationwebui_settings.openrouter_quantizations).trigger('change');
     showSamplerControls(textgenerationwebui_settings.type);
     BIAS_CACHE.delete(BIAS_KEY);

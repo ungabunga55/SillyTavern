@@ -5891,7 +5891,8 @@ function loadOpenAISettings(data, settings) {
     setClaudePreservedThinkingControls();
     ToolManager.RECURSE_LIMIT = oai_settings.tool_call_recurse_limit;
 
-    $('#openrouter_providers_chat').trigger('change');
+    $('#openrouter_providers_chat').val(oai_settings.openrouter_providers).trigger('change.select2');
+    updateOpenRouterProvidersWarning('#openrouter_providers_chat');
     $('#openrouter_quantizations_chat').trigger('change');
     $('#nanogpt_provider').trigger('change');
     $('#chat_completion_source').trigger('change');
@@ -6627,7 +6628,8 @@ function onSettingsPresetChange(_event, data) {
         // These cannot be changed via preset if unbound to connection
         if (oai_settings.bind_preset_to_connection) {
             $('#chat_completion_source').trigger('change', { reconnect: data?.reconnect });
-            $('#openrouter_providers_chat').trigger('change');
+            $('#openrouter_providers_chat').val(oai_settings.openrouter_providers).trigger('change.select2');
+            updateOpenRouterProvidersWarning('#openrouter_providers_chat');
             $('#openrouter_quantizations_chat').trigger('change');
             $('#nanogpt_provider').trigger('change');
         }
@@ -7119,7 +7121,7 @@ async function onModelChange() {
 
         console.log('OpenRouter model changed to', value);
         oai_settings.openrouter_model = value;
-        syncOpenRouterProvidersForModel(value, '#openrouter_providers_chat');
+        syncOpenRouterProvidersForModel(value, '#openrouter_providers_chat', oai_settings.openrouter_providers);
     }
 
     if ($(this).is('#model_requesty_select')) {

@@ -8,10 +8,36 @@ export const router = express.Router();
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
 const SUPPORTED_OPENROUTER_IMAGE_FORMATS = new Set(['png', 'jpg', 'jpeg', 'webp']);
 
+/**
+ * Extracts a sorted list of unique provider names from an OpenRouter response.
+ * @param {any} data OpenRouter response body
+ * @param {boolean} useModelEndpoints Whether the response came from a model endpoints request
+ * @returns {string[]} Provider names
+ */
+export function getOpenRouterProviderNames(data, useModelEndpoints) {
+    const providers = useModelEndpoints ? data?.data?.endpoints : data?.data;
+
+    return Array.isArray(providers)
+        ? [...new Set(providers.map(provider => useModelEndpoints ? provider?.provider_name : provider?.name)
+            .filter(name => typeof name === 'string' && name))]
+            .sort((a, b) => a.localeCompare(b))
+        : [];
+}
+
 router.post('/models/providers', async (req, res) => {
     try {
-        const { model } = req.body;
-        const response = await fetch(`${API_OPENROUTER}/models/${model}/endpoints`, {
+        const model = String(req.body?.model || '');
+        const modelParts = model.split('/');
+        const useModelEndpoints = model.includes('/');
+
+        if (useModelEndpoints && (modelParts.length !== 2 || modelParts.some(part => !part))) {
+            return res.sendStatus(400);
+        }
+
+        const endpoint = useModelEndpoints
+            ? `/models/${modelParts.map(encodeURIComponent).join('/')}/endpoints`
+            : '/providers';
+        const response = await fetch(`${API_OPENROUTER}${endpoint}`, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
@@ -24,8 +50,7 @@ router.post('/models/providers', async (req, res) => {
 
         /** @type {any} */
         const data = await response.json();
-        const endpoints = data?.data?.endpoints || [];
-        const providerNames = endpoints.map(e => e.provider_name);
+        const providerNames = getOpenRouterProviderNames(data, useModelEndpoints);
 
         return res.json(providerNames);
     } catch (error) {

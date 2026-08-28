@@ -22,94 +22,6 @@ export let openRouterModels = [];
 const OPENROUTER_MODEL_SORTS = new Set(['most-popular', 'newest', 'top-weekly']);
 
 /**
- * List of OpenRouter providers.
- * @type {string[]}
- */
-const OPENROUTER_PROVIDERS = [
-    // Providers endpoint: https://openrouter.ai/api/v1/providers
-    // The list should resemble the sidebar from https://openrouter.ai/models
-    // Their docs no longer displays the list, which had "super dead" ones at top, thankfully gone from /v1/providers
-    'AI21',
-    'AionLabs',
-    'Alibaba',
-    'AkashML',
-    'Amazon Bedrock',
-    'Amazon Nova',
-    'Ambient',
-    'Anthropic',
-    'Arcee AI',
-    'AtlasCloud',
-    'Avian',
-    'Azure',
-    'Baidu',
-    'BaseTen',
-    'Black Forest Labs',
-    'Cerebras',
-    'Chutes',
-    'Cirrascale',
-    'Clarifai',
-    'Cloudflare',
-    'Cohere',
-    'Crusoe',
-    'DeepInfra',
-    'DeepSeek',
-    'DekaLLM',
-    'FakeProvider',
-    'Featherless',
-    'Fireworks',
-    'Friendli',
-    'GMICloud',
-    'Google',
-    'Google AI Studio',
-    'Groq',
-    'Hyperbolic',
-    'Inception',
-    'Inceptron',
-    'InferenceNet',
-    'Infermatic',
-    'Inflection',
-    'Io Net',
-    'Ionstream',
-    'Liquid',
-    'Mancer 2',
-    'Mara',
-    'Minimax',
-    'Mistral',
-    'ModelRun',
-    'Modular',
-    'Moonshot AI',
-    'Morph',
-    'NCompass',
-    'Nebius',
-    'NextBit',
-    'Novita',
-    'Nvidia',
-    'OpenAI',
-    'OpenInference',
-    'Parasail',
-    'Perplexity',
-    'Phala',
-    'Recraft',
-    'Reka',
-    'Relace',
-    'SambaNova',
-    'Seed',
-    'SiliconFlow',
-    'Sourceful',
-    'Stealth',
-    'StepFun',
-    'StreamLake',
-    'Switchpoint',
-    'Together',
-    'Upstage',
-    'Venice',
-    'WandB',
-    'xAI',
-    'Xiaomi',
-    'Z.AI',
-];
-
-/**
  * List of NanoGPT providers.
  * Providers endpoint: https://nano-gpt.com/api/models/providers
  * @type {{id: string, label: string}[]}
@@ -335,6 +247,7 @@ const OPENROUTER_PROVIDER_WARNING_SELECTORS = {
         warningSelector: '#openrouter_provider_warning_chat',
     },
 };
+const openRouterProviderRequestTokens = new Map();
 
 export function updateOpenRouterProvidersWarning(providersSelector) {
     const $providers = $(providersSelector);
@@ -356,19 +269,15 @@ export function updateOpenRouterProvidersWarning(providersSelector) {
     $warning.toggleClass('displayNone', !showWarning);
 }
 
-export async function syncOpenRouterProvidersForModel(modelId, providersSelector) {
+export async function syncOpenRouterProvidersForModel(modelId, providersSelector, selectedProviders = undefined) {
     const $providers = $(providersSelector);
+    const selection = Array.isArray(selectedProviders) ? selectedProviders : ($providers.val() || []);
+    const requestToken = Symbol();
+    openRouterProviderRequestTokens.set(providersSelector, requestToken);
 
     const refreshWarningState = () => {
         updateOpenRouterProvidersWarning(providersSelector);
     };
-
-    if (!modelId || !modelId.includes('/')) {
-        $providers.find('option').prop('disabled', false);
-        $providers.trigger('change.select2');
-        refreshWarningState();
-        return;
-    }
 
     try {
         const response = await fetch('/api/openrouter/models/providers', {
@@ -384,19 +293,25 @@ export async function syncOpenRouterProvidersForModel(modelId, providersSelector
 
         const providerNames = await response.json();
 
-        if (!Array.isArray(providerNames) || providerNames.length === 0) {
-            $providers.find('option').prop('disabled', false);
-            $providers.trigger('change.select2');
+        if (openRouterProviderRequestTokens.get(providersSelector) !== requestToken) {
+            return;
+        }
+
+        if (!Array.isArray(providerNames)) {
             refreshWarningState();
             return;
         }
 
-        $providers.find('option').each(function () {
-            const isAvailable = providerNames.includes($(this).val());
-            $(this).prop('disabled', !isAvailable);
-        });
+        $providers.empty();
+        for (const provider of providerNames) {
+            $providers.append($('<option>', {
+                value: provider,
+                text: provider,
+                selected: selection.includes(provider),
+            }));
+        }
 
-        $providers.trigger('change.select2');
+        $providers.trigger('change');
         refreshWarningState();
     } catch (error) {
         console.error('Failed to fetch OpenRouter providers for model', error);
@@ -686,7 +601,7 @@ export async function loadOpenRouterModels(data) {
 
     // Calculate the cost of the selected model + update on settings change
     calculateOpenRouterCost();
-    syncOpenRouterProvidersForModel(textgen_settings.openrouter_model, '#openrouter_providers_text');
+    syncOpenRouterProvidersForModel(textgen_settings.openrouter_model, '#openrouter_providers_text', textgen_settings.openrouter_providers);
 }
 
 export async function loadVllmModels(data) {
@@ -1095,7 +1010,7 @@ function onOpenRouterModelSelect() {
     textgen_settings.openrouter_model = modelId;
     $('#api_button_textgenerationwebui').trigger('click');
     const model = openRouterModels.find(x => x.id === modelId);
-    syncOpenRouterProvidersForModel(modelId, '#openrouter_providers_text');
+    syncOpenRouterProvidersForModel(modelId, '#openrouter_providers_text', textgen_settings.openrouter_providers);
     setGenerationParamsFromPreset({ max_length: model.context_length });
 }
 
@@ -1410,13 +1325,6 @@ export function initTextGenModels() {
     $('#featherless_model').on('change', () => onFeatherlessModelSelect(String($('#featherless_model').val())));
 
     const providersSelect = $('.openrouter_providers');
-    for (const provider of OPENROUTER_PROVIDERS) {
-        providersSelect.append($('<option>', {
-            value: provider,
-            text: provider,
-        }));
-    }
-
     const nanoGptProvidersSelect = $('#nanogpt_provider');
     for (const provider of NANOGPT_PROVIDERS) {
         nanoGptProvidersSelect.append($('<option>', {
