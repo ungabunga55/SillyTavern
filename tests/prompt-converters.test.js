@@ -904,6 +904,7 @@ describe('convertClaudeMessages', () => {
     const names = makeNames('Bot', 'User');
 
     test.each([
+        ['claude-fable-5-1', true],
         ['claude-fable-5', true],
         ['claude-mythos-5-20260701', true],
         ['claude-opus-5', true],
