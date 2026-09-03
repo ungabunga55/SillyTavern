@@ -380,6 +380,12 @@ function getOpenAIReasoningEffort(model, effort) {
         return undefined;
     }
 
+    if (/^gpt-6-astra(?:$|-)/.test(String(model || '').toLowerCase())) {
+        if (effort === 'none') {
+            return 'low';
+        }
+    }
+
     if (/^gpt-5\.6/.test(String(model || '').toLowerCase())) {
         if (effort === 'min') {
             return 'none';
@@ -427,7 +433,7 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.[56]/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6-astra(?:$|-)/.test(modelId)) {
         return true;
     }
     return modelId.startsWith('gpt-5') && Boolean(effort) && effort !== 'none';
@@ -3301,6 +3307,11 @@ async function sendAzureOpenAIRequest(request, response) {
     // Do not send reasoning effort to models which do not support it
     apiRequestBody['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
 
+    if (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())) {
+        delete apiRequestBody.tools;
+        delete apiRequestBody.tool_choice;
+    }
+
     const controller = new AbortController();
     request.socket.removeAllListeners('close');
     request.socket.on('close', () => controller.abort());
@@ -4567,6 +4578,13 @@ router.post('/generate', async function (request, response) {
                 'n': request.body.n,
                 ...bodyParams,
             };
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI
+            && !useOpenAIResponsesApi
+            && /^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())) {
+            delete requestBody.tools;
+            delete requestBody.tool_choice;
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER
