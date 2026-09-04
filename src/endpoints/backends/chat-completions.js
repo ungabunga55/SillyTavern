@@ -340,16 +340,6 @@ function isClaudeAdaptiveThinkingModel(model, enableLegacyAdaptive = true) {
 }
 
 /**
- * Checks if a Claude model rejects assistant prefill in thinking/adaptive modes.
- * @param {string} model Model identifier
- * @returns {boolean} True if assistant prefill should be converted
- */
-function isClaudeNoPrefillModel(model) {
-    const modelId = getClaudeModelId(model);
-    return isClaudeNoSamplingModel(modelId) || /^claude-(?:opus-4-6|sonnet-4-6)(?:$|-)/.test(modelId);
-}
-
-/**
  * Checks if a Claude model supports verbosity/effort output config.
  * @param {string} model Model identifier
  * @returns {boolean} True if verbosity may be sent
@@ -1640,8 +1630,8 @@ let warnedAutomaticCacheBreakpointLimit = false;
  * Adds top-level automatic caching when an explicit breakpoint slot remains.
  * @param {object} requestBody Anthropic-compatible request body
  */
-function addAutomaticClaudeCacheControl(requestBody) {
-    if (!enableAutomaticPromptCache) {
+function addAutomaticClaudeCacheControl(requestBody, enabled = enableAutomaticPromptCache, ttl = cacheTTL) {
+    if (!enabled) {
         return;
     }
 
@@ -1666,9 +1656,42 @@ function addAutomaticClaudeCacheControl(requestBody) {
         return;
     }
 
-    requestBody.cache_control = cacheTTL === '1h'
+    requestBody.cache_control = ttl === '1h'
         ? { type: 'ephemeral', ttl: '1h' }
         : { type: 'ephemeral' };
+}
+
+/**
+ * Resolves request-scoped Claude prompt caching settings, falling back to server configuration.
+ * @param {object} body Request body
+ * @returns {{automatic: boolean, system: boolean, depth: number, ttl: '5m'|'1h'}}
+ */
+function getClaudePromptCacheSettings(body) {
+    const mode = String(body.claude_prompt_cache_mode || 'config');
+    if (!['off', 'automatic', 'depth'].includes(mode)) {
+        return {
+            automatic: enableAutomaticPromptCache,
+            system: enableSystemPromptCache,
+            depth: cachingAtDepth,
+            ttl: cacheTTL,
+        };
+    }
+
+    if (mode === 'off') {
+        return { automatic: false, system: false, depth: -1, ttl: '5m' };
+    }
+
+    const requestedDepth = Math.trunc(Number(body.claude_prompt_cache_depth));
+    let depth = -1;
+    if (mode === 'depth') {
+        depth = Number.isFinite(requestedDepth) && requestedDepth >= 0 ? requestedDepth : 0;
+    }
+    return {
+        automatic: mode === 'automatic',
+        system: Boolean(body.claude_prompt_cache_system),
+        depth,
+        ttl: body.claude_prompt_cache_ttl === '1h' ? '1h' : '5m',
+    };
 }
 
 /**
@@ -1810,18 +1833,17 @@ async function sendClaudeRequest(request, response) {
         const betaHeaders = [];
         const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.use_sysprompt);
+        const promptCache = getClaudePromptCacheSettings(request.body);
         const useMidConversationSystemMessages = supportsClaudeMidConversationSystemMessages(request.body.model);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request), useMidConversationSystemMessages);
         const useThinking = isClaudeThinkingModel(request.body.model);
         const useWebSearch = /^claude-(3-5|3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model) && Boolean(request.body.enable_web_search);
         const isLimitedSampling = isClaudeLimitedSamplingModel(request.body.model);
         const useVerbosity = isClaudeVerbosityModel(request.body.model);
-        const noPrefillModel = isClaudeNoPrefillModel(request.body.model);
         const isAdaptiveModel = isClaudeAdaptiveThinkingModel(request.body.model, enableAdaptiveThinking);
         const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
         const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
         const omittedThinkingDisplayModel = noSamplingModel;
-        let fixThinkingPrefill = false;
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -1840,8 +1862,8 @@ async function sendClaudeRequest(request, response) {
             stream: request.body.stream,
         };
         if (useSystemPrompt) {
-            if (enableSystemPromptCache && Array.isArray(convertedPrompt.systemPrompt) && convertedPrompt.systemPrompt.length) {
-                convertedPrompt.systemPrompt[convertedPrompt.systemPrompt.length - 1].cache_control = { type: 'ephemeral', ttl: cacheTTL };
+            if (promptCache.system && Array.isArray(convertedPrompt.systemPrompt) && convertedPrompt.systemPrompt.length) {
+                convertedPrompt.systemPrompt[convertedPrompt.systemPrompt.length - 1].cache_control = { type: 'ephemeral', ttl: promptCache.ttl };
             }
 
             requestBody.system = convertedPrompt.systemPrompt;
@@ -1849,15 +1871,14 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.system;
         }
         if (useTools) {
-            betaHeaders.push('tools-2024-05-16');
             requestBody.tool_choice = { type: request.body.tool_choice };
             requestBody.tools = request.body.tools
                 .filter(tool => tool.type === 'function')
                 .map(tool => tool.function)
                 .map(fn => ({ name: fn.name, description: fn.description, input_schema: flattenSchema(fn.parameters, request.body.chat_completion_source) }));
 
-            if (enableSystemPromptCache && requestBody.tools.length) {
-                requestBody.tools[requestBody.tools.length - 1].cache_control = { type: 'ephemeral', ttl: cacheTTL };
+            if (promptCache.system && requestBody.tools.length) {
+                requestBody.tools[requestBody.tools.length - 1].cache_control = { type: 'ephemeral', ttl: promptCache.ttl };
             }
         }
 
@@ -1880,13 +1901,15 @@ async function sendClaudeRequest(request, response) {
             requestBody.tools = [...webSearchTool, ...(requestBody.tools || [])];
         }
 
-        if (cachingAtDepth !== -1) {
-            cachingAtDepthForClaude(convertedPrompt.messages, cachingAtDepth, cacheTTL);
+        if (promptCache.depth !== -1) {
+            cachingAtDepthForClaude(convertedPrompt.messages, promptCache.depth, promptCache.ttl);
         }
 
-        if (enableSystemPromptCache || cachingAtDepth !== -1) {
+        if (promptCache.automatic || promptCache.system || promptCache.depth !== -1) {
             betaHeaders.push('prompt-caching-2024-07-31');
-            betaHeaders.push('extended-cache-ttl-2025-04-11');
+            if (promptCache.ttl === '1h') {
+                betaHeaders.push('extended-cache-ttl-2025-04-11');
+            }
         }
 
         if (isLimitedSampling) {
@@ -1912,7 +1935,6 @@ async function sendClaudeRequest(request, response) {
         if (disableThinking) {
             requestBody.thinking = { type: 'disabled' };
         } else if (useThinking && typeof budgetTokens === 'string') {
-            fixThinkingPrefill = true;
             requestBody.thinking = { type: 'adaptive' };
             if (omittedThinkingDisplayModel && includeReasoning) {
                 requestBody.thinking.display = 'summarized';
@@ -1923,7 +1945,6 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.top_k;
         } else if (useThinking && budgetTokens === null && (forcedAdaptiveModel || (noSamplingModel && includeReasoning))) {
             // Adaptive-only models use adaptive thinking without explicit effort at auto.
-            fixThinkingPrefill = true;
             requestBody.thinking = { type: 'adaptive' };
             if (includeReasoning) {
                 requestBody.thinking.display = 'summarized';
@@ -1932,7 +1953,6 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.top_k;
         } else if (useThinking && Number.isInteger(budgetTokens)) {
             // Traditional thinking: returns a numeric budget
-            fixThinkingPrefill = true;
             const minThinkTokens = 1024;
             if (requestBody.max_tokens <= minThinkTokens) {
                 const newValue = requestBody.max_tokens + minThinkTokens;
@@ -1951,13 +1971,8 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.top_k;
         }
 
-        if ((fixThinkingPrefill || noPrefillModel) && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
-            convertedPrompt.messages[convertedPrompt.messages.length - 1].role = 'user';
-        }
-
         // Verbosity = 'effort' (same values as OpenAI) - only if not already set by adaptive thinking
         if (useVerbosity && request.body.verbosity && !requestBody.output_config?.effort) {
-            betaHeaders.push('effort-2025-11-24');
             requestBody.output_config ??= {};
             requestBody.output_config.effort = request.body.verbosity;
         }
@@ -1966,7 +1981,7 @@ async function sendClaudeRequest(request, response) {
             additionalHeaders['anthropic-beta'] = betaHeaders.join(',');
         }
 
-        addAutomaticClaudeCacheControl(requestBody);
+        addAutomaticClaudeCacheControl(requestBody, promptCache.automatic, promptCache.ttl);
         console.debug('Claude request:', requestBody);
 
         const generateResponse = await fetch(apiUrl + '/messages', {
@@ -1999,7 +2014,10 @@ async function sendClaudeRequest(request, response) {
             console.debug('Claude response:', generateResponseJson);
 
             // Wrap it back to OAI format + save the original content
-            const reply = { choices: [{ 'message': { 'content': responseText } }], content: generateResponseJson.content };
+            const reply = {
+                ...generateResponseJson,
+                choices: [{ 'message': { 'content': responseText } }],
+            };
             return response.send(reply);
         }
     } catch (error) {
@@ -3900,6 +3918,7 @@ router.post('/generate', async function (request, response) {
         let apiKey;
         let headers;
         let bodyParams;
+        let claudePromptCacheSettings = null;
         const isTextCompletion = Boolean(request.body.model && TEXT_COMPLETION_MODELS.includes(request.body.model)) || typeof request.body.messages === 'string';
         const useOpenAIResponsesApi = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI && request.body.openai_api_type === 'responses';
         const useMetaResponsesApi = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.META;
@@ -4075,12 +4094,13 @@ router.post('/generate', async function (request, response) {
                 }
 
                 if (isClaude) {
-                    if (enableSystemPromptCache) {
-                        cachingSystemPromptForOpenRouter(request.body.messages, cacheTTL);
+                    claudePromptCacheSettings = getClaudePromptCacheSettings(request.body);
+                    if (claudePromptCacheSettings.system) {
+                        cachingSystemPromptForOpenRouter(request.body.messages, claudePromptCacheSettings.ttl);
                     }
 
-                    if (cachingAtDepth !== -1) {
-                        cachingAtDepthForOpenRouterClaude(request.body.messages, cachingAtDepth, cacheTTL);
+                    if (claudePromptCacheSettings.depth !== -1) {
+                        cachingAtDepthForOpenRouterClaude(request.body.messages, claudePromptCacheSettings.depth, claudePromptCacheSettings.ttl);
                     }
                 }
 
@@ -4587,8 +4607,9 @@ router.post('/generate', async function (request, response) {
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER
-            && /^anthropic\/claude/.test(request.body.model)) {
-            addAutomaticClaudeCacheControl(requestBody);
+            && /^anthropic\/claude/.test(request.body.model)
+            && claudePromptCacheSettings) {
+            addAutomaticClaudeCacheControl(requestBody, claudePromptCacheSettings.automatic, claudePromptCacheSettings.ttl);
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && isMoonshotKimiFixedParameterModel(request.body.model)) {

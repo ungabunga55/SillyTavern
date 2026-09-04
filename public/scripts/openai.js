@@ -671,6 +671,10 @@ export const settingsToUpdate = {
     claude_preserved_thinking: ['#claude_preserved_thinking', 'claude_preserved_thinking', true, false],
     claude_preserved_thinking_all: ['#claude_preserved_thinking_all', 'claude_preserved_thinking_all', true, false],
     claude_preserved_thinking_count: ['#claude_preserved_thinking_count', 'claude_preserved_thinking_count', false, false],
+    claude_prompt_cache_mode: ['#claude_prompt_cache_mode', 'claude_prompt_cache_mode', false, false],
+    claude_prompt_cache_depth: ['#claude_prompt_cache_depth', 'claude_prompt_cache_depth', false, false],
+    claude_prompt_cache_system: ['#claude_prompt_cache_system', 'claude_prompt_cache_system', true, false],
+    claude_prompt_cache_ttl: ['#claude_prompt_cache_ttl', 'claude_prompt_cache_ttl', false, false],
     ai21_model: ['#model_ai21_select', 'ai21_model', false, true],
     mistralai_model: ['#model_mistralai_select', 'mistralai_model', false, true],
     cohere_model: ['#model_cohere_select', 'cohere_model', false, true],
@@ -907,6 +911,10 @@ const default_settings = {
     claude_preserved_thinking: false,
     claude_preserved_thinking_all: false,
     claude_preserved_thinking_count: 3,
+    claude_prompt_cache_mode: 'config',
+    claude_prompt_cache_depth: 0,
+    claude_prompt_cache_system: false,
+    claude_prompt_cache_ttl: '5m',
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
     max_context_unlocked: false,
@@ -1561,7 +1569,11 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
                 return clone;
             });
             const toolCallMessage = await Message.createAsync(chatMessage.role, undefined, 'toolCall-' + chatMessage.identifier);
-            const toolResultMessages = await Promise.all(invocations.slice().reverse().map((invocation) => Message.createAsync('tool', invocation.result || '[No content]', invocation.id)));
+            const toolResultMessages = await Promise.all(invocations.slice().reverse().map(async (invocation) => {
+                const message = await Message.createAsync('tool', invocation.result || '[No content]', invocation.id);
+                message.tool_result_is_error = Boolean(invocation.error);
+                return message;
+            }));
             await toolCallMessage.setToolCalls(invocations, includeSignature, includeToolReasoning);
             if (chatCompletion.canAffordAll([toolCallMessage, ...toolResultMessages])) {
                 for (const resultMessage of toolResultMessages) {
@@ -2160,35 +2172,38 @@ export async function prepareOpenAIMessages({
  * @param {boolean?} [options.quiet=false] Suppress toast messages
  */
 export function tryParseStreamingError(response, decoded, { quiet = false } = {}) {
+    let data;
     try {
-        const data = JSON.parse(decoded);
-
-        if (!data) {
-            return;
-        }
-
-        checkQuotaError(data, { quiet });
-        checkModerationError(data, { quiet });
-
-        // these do not throw correctly (equiv to Error("[object Object]"))
-        // if trying to fix "[object Object]" displayed to users, start here
-
-        if (data.error) {
-            !quiet && toastr.error(data.error.message || response.statusText, 'Chat Completion API');
-            throw new Error(data);
-        }
-
-        if (data.message) {
-            !quiet && toastr.error(data.message, 'Chat Completion API');
-            throw new Error(data);
-        }
-
-        if (data.detail) {
-            !quiet && toastr.error(data.detail?.error?.message || response.statusText, 'Chat Completion API');
-            throw new Error(data);
-        }
+        data = JSON.parse(decoded);
     } catch {
         // No JSON. Do nothing.
+        return;
+    }
+
+    if (!data) {
+        return;
+    }
+
+    checkQuotaError(data, { quiet });
+    checkModerationError(data, { quiet });
+
+    if (data.error) {
+        const message = typeof data.error === 'string'
+            ? data.error
+            : data.error.message || response.statusText || 'API returned an error';
+        !quiet && toastr.error(message, 'Chat Completion API');
+        throw new Error(message);
+    }
+
+    if (typeof data.message === 'string' && data.message) {
+        !quiet && toastr.error(data.message, 'Chat Completion API');
+        throw new Error(data.message);
+    }
+
+    if (data.detail) {
+        const message = data.detail?.error?.message || response.statusText || 'API returned an error';
+        !quiet && toastr.error(message, 'Chat Completion API');
+        throw new Error(message);
     }
 }
 
@@ -4028,6 +4043,15 @@ export async function createGenerationParameters(settings, model, type, messages
         }
     }
 
+    const usesClaudePromptCaching = settings.chat_completion_source === chat_completion_sources.CLAUDE
+        || (settings.chat_completion_source === chat_completion_sources.OPENROUTER && /^anthropic\/claude/i.test(String(model || '')));
+    if (usesClaudePromptCaching) {
+        generate_data.claude_prompt_cache_mode = settings.claude_prompt_cache_mode;
+        generate_data.claude_prompt_cache_depth = Number(settings.claude_prompt_cache_depth);
+        generate_data.claude_prompt_cache_system = Boolean(settings.claude_prompt_cache_system);
+        generate_data.claude_prompt_cache_ttl = settings.claude_prompt_cache_ttl;
+    }
+
     if (settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.min_p = Number(settings.min_p_openai);
@@ -4646,7 +4670,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', reasoningDetails: [], toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {} };
+            const state = { reasoning: '', reasoningDetails: [], toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {}, anthropicMetadata: null };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -4731,6 +4755,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
 
     if (chat_completion_source === chat_completion_sources.CLAUDE) {
         updateClaudeThinkingBlocksFromStream(data, state);
+        updateClaudeResponseMetadataFromStream(data, state);
         if (show_thoughts) {
             state.reasoning += data?.delta?.thinking || '';
         }
@@ -4879,6 +4904,38 @@ function updateClaudeThinkingBlocksFromStream(data, state) {
             state.claudeThinkingBlocks[index] = structuredClone(block);
         }
         delete state.claudeThinkingBlocksInProgress[index];
+    }
+}
+
+/**
+ * Preserves Anthropic response envelope metadata while streaming.
+ * @param {object} data Anthropic streaming event
+ * @param {object} state Streaming state
+ */
+function updateClaudeResponseMetadataFromStream(data, state) {
+    if (data?.type === 'message_start' && data.message) {
+        state.anthropicMetadata = structuredClone(data.message);
+        delete state.anthropicMetadata.content;
+        return;
+    }
+
+    if (data?.type !== 'message_delta') {
+        return;
+    }
+
+    state.anthropicMetadata ??= {};
+    if (data.delta && typeof data.delta === 'object') {
+        Object.assign(state.anthropicMetadata, structuredClone(data.delta));
+    }
+    for (const key of ['usage', 'context_management', 'input_transformations']) {
+        if (data[key] !== undefined) {
+            if (key === 'usage' && data.usage && typeof data.usage === 'object') {
+                const usage = Object.fromEntries(Object.entries(data.usage).filter(([, value]) => value !== null));
+                state.anthropicMetadata.usage = { ...state.anthropicMetadata.usage, ...structuredClone(usage) };
+            } else {
+                state.anthropicMetadata[key] = structuredClone(data[key]);
+            }
+        }
     }
 }
 
@@ -5144,6 +5201,8 @@ class Message {
     reasoning = null;
     /** @type {object[]?} */
     claudeThinkingBlocks = null;
+    /** @type {boolean} */
+    tool_result_is_error = false;
 
     /**
      * @constructor
@@ -5205,6 +5264,7 @@ class Message {
         this.reasoning_details = reasoningDetails ? structuredClone(reasoningDetails) : undefined;
         this.tokens = await tokenHandler.countAsync({
             role: this.role,
+            ...(this.content ? { content: this.content } : {}),
             tool_calls: JSON.stringify(this.tool_calls),
             ...(this.reasoning ? { reasoning: this.reasoning } : {}),
             ...(this.reasoning_details ? { reasoning_details: this.reasoning_details } : {}),
@@ -5499,6 +5559,7 @@ class MessageCollection {
      * @returns {Array} Array of objects with role, name, and content properties.
      */
     getChat() {
+        const includeClaudeToolErrors = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
         return this.collection.reduce((acc, message) => {
             if (message.content || message.tool_calls) {
                 acc.push({
@@ -5507,6 +5568,7 @@ class MessageCollection {
                     ...(message.name && { name: message.name }),
                     ...(message.tool_calls && { tool_calls: message.tool_calls }),
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
+                    ...(message.role === 'tool' && message.tool_result_is_error && includeClaudeToolErrors && { tool_result_is_error: true }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
                     ...(message.reasoning_details?.length && { reasoning_details: message.reasoning_details }),
@@ -5790,6 +5852,7 @@ export class ChatCompletion {
      */
     getChat() {
         const chat = [];
+        const includeClaudeToolErrors = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
         for (let item of this.messages.collection) {
             if (item instanceof MessageCollection) {
                 chat.push(...item.getChat());
@@ -5800,6 +5863,7 @@ export class ChatCompletion {
                     ...(item.name ? { name: item.name } : {}),
                     ...(item.tool_calls ? { tool_calls: item.tool_calls } : {}),
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
+                    ...(item.role === 'tool' && item.tool_result_is_error && includeClaudeToolErrors ? { tool_result_is_error: true } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
                     ...(item.reasoning_details?.length ? { reasoning_details: item.reasoning_details } : {}),
@@ -6067,6 +6131,7 @@ function loadOpenAISettings(data, settings) {
     setToolReasoningControls();
     setMoonshotPreservedThinkingControls();
     setClaudePreservedThinkingControls();
+    setClaudePromptCacheControls();
     setVeniceParameterControls();
     ToolManager.RECURSE_LIMIT = oai_settings.tool_call_recurse_limit;
 
@@ -6172,6 +6237,26 @@ function setClaudePreservedThinkingControls() {
     $('#claude_preserved_thinking_count')
         .val(oai_settings.claude_preserved_thinking_count)
         .prop('disabled', !oai_settings.claude_preserved_thinking || oai_settings.claude_preserved_thinking_all);
+}
+
+function setClaudePromptCacheControls() {
+    const mode = String(oai_settings.claude_prompt_cache_mode || 'config');
+    const isDirectClaude = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
+    const isOpenRouterClaude = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
+        && /^anthropic\/claude/i.test(String(oai_settings.openrouter_model || ''));
+    const usesRuntimeSettings = mode !== 'config';
+    $('#claude_prompt_cache_block').toggle(isDirectClaude);
+    $('#openrouter_claude_prompt_cache_block').toggle(isOpenRouterClaude);
+    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode').val(mode);
+    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth')
+        .val(oai_settings.claude_prompt_cache_depth)
+        .prop('disabled', mode !== 'depth');
+    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system')
+        .prop('checked', Boolean(oai_settings.claude_prompt_cache_system))
+        .prop('disabled', !usesRuntimeSettings || mode === 'off');
+    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl')
+        .val(oai_settings.claude_prompt_cache_ttl)
+        .prop('disabled', !usesRuntimeSettings || mode === 'off');
 }
 
 function setVeniceParameterControls() {
@@ -7947,6 +8032,7 @@ async function onModelChange() {
     updateOpenRouterSamplerSupportIndicators();
     updateFeatureSupportFlags();
     setToolReasoningControls();
+    setClaudePromptCacheControls();
     eventSource.emit(event_types.CHATCOMPLETION_MODEL_CHANGED, value);
 }
 
@@ -9287,6 +9373,31 @@ export function initOpenAI() {
 
     $('#claude_disable_thinking').on('input', function () {
         oai_settings.claude_disable_thinking = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode').on('input', function () {
+        oai_settings.claude_prompt_cache_mode = String($(this).val() || 'config');
+        setClaudePromptCacheControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth').on('input', function () {
+        const depth = Math.trunc(Number($(this).val()));
+        oai_settings.claude_prompt_cache_depth = Number.isFinite(depth) && depth >= 0 ? depth : 0;
+        setClaudePromptCacheControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system').on('input', function () {
+        oai_settings.claude_prompt_cache_system = Boolean($(this).prop('checked'));
+        setClaudePromptCacheControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl').on('input', function () {
+        oai_settings.claude_prompt_cache_ttl = String($(this).val()) === '1h' ? '1h' : '5m';
+        setClaudePromptCacheControls();
         saveSettingsDebounced();
     });
 

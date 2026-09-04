@@ -3517,7 +3517,9 @@
                                         <option value="claude-opus-5">claude-opus-5</option>
                                         <option value="claude-fable-5-1">claude-fable-5-1</option>
                                         <option value="claude-fable-5">claude-fable-5</option>
+                                        <option value="claude-mythos-5-1">claude-mythos-5-1</option>
                                         <option value="claude-mythos-5">claude-mythos-5</option>
+                                        <option value="claude-mythos-preview">claude-mythos-preview</option>
                                         <option value="claude-sonnet-5">claude-sonnet-5</option>
                                         <option value="claude-opus-4-8">claude-opus-4-8</option>
                                         <option value="claude-opus-4-7">claude-opus-4-7</option>
@@ -3547,6 +3549,33 @@
                                     </optgroup>
                                 </select>
                             </div>
+                            <div id="claude_prompt_cache_block" class="marginTop10">
+                                <h4 data-i18n="Prompt caching">Prompt caching</h4>
+                                <div class="flex-container oneline-dropdown">
+                                    <label for="claude_prompt_cache_mode" data-i18n="Mode">Mode</label>
+                                    <select id="claude_prompt_cache_mode">
+                                        <option value="config" data-i18n="Server default">Server default</option>
+                                        <option value="off" data-i18n="Disabled">Disabled</option>
+                                        <option value="automatic" data-i18n="Automatic">Automatic</option>
+                                        <option value="depth" data-i18n="At depth">At depth</option>
+                                    </select>
+                                </div>
+                                <div class="flex-container oneline-dropdown marginTop5">
+                                    <label for="claude_prompt_cache_depth" data-i18n="Cache depth">Cache depth</label>
+                                    <input id="claude_prompt_cache_depth" class="text_pole widthUnset" type="number" min="0" step="1">
+                                </div>
+                                <label for="claude_prompt_cache_system" class="checkbox_label widthFreeExpand marginTop5">
+                                    <input id="claude_prompt_cache_system" type="checkbox">
+                                    <span data-i18n="Cache system prompt and tools">Cache system prompt and tools</span>
+                                </label>
+                                <div class="flex-container oneline-dropdown marginTop5">
+                                    <label for="claude_prompt_cache_ttl" data-i18n="Cache TTL">Cache TTL</label>
+                                    <select id="claude_prompt_cache_ttl">
+                                        <option value="5m">5m</option>
+                                        <option value="1h">1h</option>
+                                    </select>
+                                </div>
+                            </div>
                         </form>
                         <form id="openrouter_form" data-source="openrouter" action="javascript:void(null);" method="post" enctype="multipart/form-data">
                             <h4 data-i18n="OpenRouter API Key">OpenRouter API Key</h4>
@@ -3569,6 +3598,33 @@
                                 <select id="model_openrouter_select">
                                     <option value="" data-i18n="-- Connect to the API --">-- Connect to the API --</option>
                                 </select>
+                            </div>
+                            <div id="openrouter_claude_prompt_cache_block" class="marginTop10" style="display:none;">
+                                <h4 data-i18n="Claude prompt caching">Claude prompt caching</h4>
+                                <div class="flex-container oneline-dropdown">
+                                    <label for="openrouter_claude_prompt_cache_mode" data-i18n="Mode">Mode</label>
+                                    <select id="openrouter_claude_prompt_cache_mode">
+                                        <option value="config" data-i18n="Server default">Server default</option>
+                                        <option value="off" data-i18n="Disabled">Disabled</option>
+                                        <option value="automatic" data-i18n="Automatic">Automatic</option>
+                                        <option value="depth" data-i18n="At depth">At depth</option>
+                                    </select>
+                                </div>
+                                <div class="flex-container oneline-dropdown marginTop5">
+                                    <label for="openrouter_claude_prompt_cache_depth" data-i18n="Cache depth">Cache depth</label>
+                                    <input id="openrouter_claude_prompt_cache_depth" class="text_pole widthUnset" type="number" min="0" step="1">
+                                </div>
+                                <label for="openrouter_claude_prompt_cache_system" class="checkbox_label widthFreeExpand marginTop5">
+                                    <input id="openrouter_claude_prompt_cache_system" type="checkbox">
+                                    <span data-i18n="Cache system prompt and tools">Cache system prompt and tools</span>
+                                </label>
+                                <div class="flex-container oneline-dropdown marginTop5">
+                                    <label for="openrouter_claude_prompt_cache_ttl" data-i18n="Cache TTL">Cache TTL</label>
+                                    <select id="openrouter_claude_prompt_cache_ttl">
+                                        <option value="5m">5m</option>
+                                        <option value="1h">1h</option>
+                                    </select>
+                                </div>
                             </div>
                             <div>
                                 <h4 data-i18n="OpenRouter Model Sorting">OpenRouter Model Sorting</h4>

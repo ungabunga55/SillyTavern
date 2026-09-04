@@ -3765,6 +3765,8 @@ class StreamingProcessor {
         this.toolReasoning = '';
         /** @type {object[]} Complete Claude thinking blocks. */
         this.claudeThinkingBlocks = [];
+        /** @type {object?} Anthropic response envelope metadata. */
+        this.anthropicMetadata = null;
     }
 
     /**
@@ -3947,6 +3949,11 @@ class StreamingProcessor {
             message.extra.claude_thinking_blocks = structuredClone(this.claudeThinkingBlocks);
         }
 
+        if (this.anthropicMetadata) {
+            message.extra = message.extra || {};
+            message.extra.anthropic_metadata = structuredClone(this.anthropicMetadata);
+        }
+
         if (this.reasoningDetails.length > 0) {
             message.extra = message.extra || {};
             message.extra.venice_reasoning_details = structuredClone(this.reasoningDetails);
@@ -4096,6 +4103,7 @@ class StreamingProcessor {
                 this.claudeThinkingBlocks = Array.isArray(state?.claudeThinkingBlocks)
                     ? structuredClone(state.claudeThinkingBlocks.filter(Boolean))
                     : [];
+                this.anthropicMetadata = state?.anthropicMetadata ? structuredClone(state.anthropicMetadata) : null;
                 await eventSource.emit(event_types.STREAM_TOKEN_RECEIVED, text);
                 await sw.tick(async () => await this.onProgressStreaming(this.messageId, this.continueMessage + text));
             }
@@ -5634,9 +5642,10 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                         return;
                     }
 
+                    const anthropicMetadata = shouldDeleteMessage ? streamingProcessor.anthropicMetadata : null;
                     streamingProcessor = null;
                     depth = depth + 1;
-                    await ToolManager.saveFunctionToolInvocations(invocationResult.invocations);
+                    await ToolManager.saveFunctionToolInvocations(invocationResult.invocations, anthropicMetadata);
                     return Generate('normal', { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, depth }, dryRun);
                 }
             }
@@ -5696,6 +5705,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         const reasoningSignature = extractReasoningSignatureFromData(data);
         const reasoningDetails = extractReasoningDetailsFromData(data);
         const claudeThinkingBlocks = extractClaudeThinkingBlocks(data);
+        const anthropicMetadata = extractAnthropicResponseMetadata(data);
         kobold_horde_model = title;
 
         const swipes = extractMultiSwipes(data, type);
@@ -5749,9 +5759,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         } else {
             // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
             if (originalType !== 'continue') {
-                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks }));
+                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks, anthropicMetadata }));
             } else {
-                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks }));
+                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks, anthropicMetadata }));
             }
 
             // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
@@ -5774,7 +5784,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 }
 
                 depth = depth + 1;
-                await ToolManager.saveFunctionToolInvocations(invocationResult.invocations);
+                await ToolManager.saveFunctionToolInvocations(invocationResult.invocations, shouldDeleteMessage ? anthropicMetadata : null);
                 return Generate('normal', { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, depth }, dryRun);
             }
         }
@@ -6412,6 +6422,20 @@ function extractTitleFromData(data) {
     return undefined;
 }
 
+function extractAnthropicResponseMetadata(data) {
+    if (main_api !== 'openai' || oai_settings.chat_completion_source !== chat_completion_sources.CLAUDE) {
+        return null;
+    }
+
+    const metadata = {};
+    for (const key of ['id', 'model', 'role', 'type', 'stop_reason', 'stop_sequence', 'stop_details', 'usage', 'container', 'context_management', 'diagnostics', 'input_transformations']) {
+        if (data?.[key] !== undefined) {
+            metadata[key] = structuredClone(data[key]);
+        }
+    }
+    return Object.keys(metadata).length > 0 ? metadata : null;
+}
+
 function extractOpenAIResponsesText(data) {
     if (data?.object !== 'response') {
         return '';
@@ -6894,12 +6918,13 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {object[]} [reasoningDetails] Opaque Venice reasoning metadata
  * @property {string} [veniceReasoningContent] Hidden Venice reasoning preserved for later turns
  * @property {object[]} [claudeThinkingBlocks] Complete opaque Claude thinking blocks
+ * @property {object?} [anthropicMetadata] Anthropic response envelope metadata
  *
  * @typedef {object} SaveReplyResult
  * @property {string} type Type of generation
  * @property {string} getMessage Generated message
  */
-export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, reasoningDetails = [], veniceReasoningContent = '', claudeThinkingBlocks = [] }) {
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, reasoningDetails = [], veniceReasoningContent = '', claudeThinkingBlocks = [], anthropicMetadata = null }) {
     // Backward compatibility
     if (arguments.length > 1 && typeof arguments[0] !== 'object') {
         console.trace('saveReply called with positional arguments. Please use an object instead.');
@@ -7072,6 +7097,9 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     }
 
     const item = chat[chat.length - 1];
+    if (anthropicMetadata && typeof anthropicMetadata === 'object') {
+        item.extra.anthropic_metadata = structuredClone(anthropicMetadata);
+    }
     if (item.swipe_info === undefined) {
         item.swipe_info = [];
     }

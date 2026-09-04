@@ -281,12 +281,15 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         const thinkingBlocks = getValidClaudeThinkingBlocks(message.claude_thinking_blocks);
 
         if (message.role === 'assistant' && message.tool_calls) {
-            message.content = message.tool_calls.map((tc) => ({
+            const textContent = typeof message.content === 'string' && message.content
+                ? [{ type: 'text', text: message.content }]
+                : Array.isArray(message.content) ? message.content : [];
+            message.content = [...textContent, ...message.tool_calls.map((tc) => ({
                 type: 'tool_use',
                 id: tc.id,
                 name: tc.function.name,
                 input: parse(tc.function.arguments),
-            }));
+            }))];
         }
 
         if (message.role === 'tool') {
@@ -295,6 +298,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
                 type: 'tool_result',
                 tool_use_id: message.tool_call_id,
                 content: message.content,
+                ...(message.tool_result_is_error ? { is_error: true } : {}),
             }];
         }
 
@@ -364,6 +368,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         delete message.name;
         delete message.tool_calls;
         delete message.tool_call_id;
+        delete message.tool_result_is_error;
         delete message.claude_thinking_blocks;
     });
 
@@ -422,6 +427,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
                     content.text = content.content;
                     delete content.tool_use_id;
                     delete content.content;
+                    delete content.is_error;
                 }
             });
         });

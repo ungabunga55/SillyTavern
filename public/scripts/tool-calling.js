@@ -977,8 +977,9 @@ export class ToolManager {
     /**
      * Saves function tool invocations to the last user chat message extra metadata.
      * @param {ToolInvocation[]} invocations Successful tool invocations
+     * @param {object?} responseMetadata Provider response metadata to preserve
      */
-    static async saveFunctionToolInvocations(invocations) {
+    static async saveFunctionToolInvocations(invocations, responseMetadata = null) {
         if (!Array.isArray(invocations) || invocations.length === 0) {
             return;
         }
@@ -993,6 +994,7 @@ export class ToolManager {
                 tool_invocations: invocations,
                 api: getGeneratingApi(),
                 model: getGeneratingModel(),
+                ...(responseMetadata ? { anthropic_metadata: structuredClone(responseMetadata) } : {}),
             },
         };
         chat.push(message);

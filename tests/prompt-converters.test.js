@@ -1085,6 +1085,51 @@ describe('convertClaudeMessages', () => {
         expect(toolResult.content).toBe('Found results');
     });
 
+    test('preserves assistant text before tool_use blocks', () => {
+        const messages = [
+            { role: 'user', content: 'search' },
+            {
+                role: 'assistant',
+                content: 'Let me check.',
+                tool_calls: [{ id: 'tc1', function: { name: 'search', arguments: '{}' } }],
+            },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, true, names);
+        expect(result.messages[1].content).toEqual([
+            { type: 'text', text: 'Let me check.' },
+            { type: 'tool_use', id: 'tc1', name: 'search', input: {} },
+        ]);
+    });
+
+    test('marks failed tool results as errors', () => {
+        const messages = [
+            { role: 'user', content: 'search' },
+            { role: 'tool', content: 'Error: unavailable', tool_call_id: 'tc1', tool_result_is_error: true },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, true, names);
+        expect(result.messages[1].content[0]).toEqual({
+            type: 'tool_result',
+            tool_use_id: 'tc1',
+            content: 'Error: unavailable',
+            is_error: true,
+        });
+    });
+
+    test('removes tool error metadata when tools are disabled', () => {
+        const messages = [
+            { role: 'user', content: 'search' },
+            { role: 'tool', content: 'Error: unavailable', tool_call_id: 'tc1', tool_result_is_error: true },
+        ];
+
+        const result = mod.convertClaudeMessages(messages, '', false, false, names);
+        expect(result.messages[0].content[1]).toEqual({
+            type: 'text',
+            text: 'Error: unavailable',
+        });
+    });
+
     test('preserves an omitted Claude thinking block exactly', () => {
         const thinkingBlock = {
             type: 'thinking',
