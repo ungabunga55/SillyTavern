@@ -2174,7 +2174,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="deepseek,nvidia,agentrouter,venice,aimlapi,openrouter,requesty,custom,claude,meta,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,atlascloud,workers_ai,featherless">
+                                    <div class="range-block" data-source="openai,deepseek,nvidia,agentrouter,venice,aimlapi,openrouter,requesty,custom,claude,meta,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks,cometapi,electronhub,chutes,azure_openai,nanogpt,zai,atlascloud,workers_ai,featherless">
                                         <label for="openai_show_thoughts" class="checkbox_label widthFreeExpand">
                                             <input id="openai_show_thoughts" type="checkbox" />
                                             <span data-i18n="Request model reasoning">Request model reasoning</span>
@@ -2274,8 +2274,11 @@
                                                 <option data-i18n="openai_reasoning_effort_xhigh" value="xhigh">Extra High</option>
                                                 <option data-i18n="openai_reasoning_effort_maximum" value="max">Maximum</option>
                                             </select>
-                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,agentrouter,custom,aimlapi,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="agentrouter,custom,aimlapi,pollinations,perplexity,cometapi,electronhub,chutes" data-i18n="OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.">
                                                 OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.
+                                            </div>
+                                            <div class="toggle-description justifyLeft marginBot5" data-source="openai,azure_openai">
+                                                OpenAI receives Extra High and Maximum exactly as selected; unsupported models may reject them. Minimum sends <code>minimal</code> for GPT-5, <code>none</code> for GPT-5.1, GPT-5.2, and GPT-5.4 through GPT-5.6, and <code>low</code> for GPT-6 Astra. Auto uses the provider default.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="xai">
                                                 xAI Grok 4.3 supports none, low, medium, and high. Grok 4.5 and 4.6 additionally support extra high; Maximum is sent as extra high. Minimum disables reasoning; Auto uses the provider default.
@@ -2352,6 +2355,19 @@
                                             </select>
                                             <div class="toggle-description justifyLeft marginBot5" data-i18n="OpenAI Responses API only. Auto omits reasoning.mode and uses the provider default. Pro performs more model work and can increase latency, token usage, and cost.">
                                                 OpenAI Responses API only. Auto omits <code>reasoning.mode</code> and uses the provider default. Pro performs more model work and can increase latency, token usage, and cost.
+                                            </div>
+                                        </div>
+                                        <div id="openai_reasoning_summary_block" class="flex-container oneline-dropdown marginBot10" title="Controls the natural-language reasoning summary requested from OpenAI's Responses API." data-source="openai" data-i18n="[title]Controls the natural-language reasoning summary requested from OpenAI's Responses API.">
+                                            <label for="openai_reasoning_summary">
+                                                <span data-i18n="Reasoning Summary">Reasoning Summary</span>
+                                            </label>
+                                            <select id="openai_reasoning_summary">
+                                                <option value="auto" data-i18n="Auto">Auto</option>
+                                                <option value="concise" data-i18n="Concise">Concise</option>
+                                                <option value="detailed" data-i18n="Detailed">Detailed</option>
+                                            </select>
+                                            <div class="toggle-description justifyLeft marginBot5" data-i18n="OpenAI Responses API only. Applied when Request model reasoning is enabled.">
+                                                OpenAI Responses API only. Applied when Request model reasoning is enabled.
                                             </div>
                                         </div>
                                         <div class="flex-container oneline-dropdown">

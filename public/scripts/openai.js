@@ -748,6 +748,7 @@ export const settingsToUpdate = {
     claude_disable_thinking: ['#claude_disable_thinking', 'claude_disable_thinking', true, false],
     reasoning_effort: ['#openai_reasoning_effort', 'reasoning_effort', false, false],
     reasoning_mode: ['#openai_reasoning_mode', 'reasoning_mode', false, false],
+    openai_reasoning_summary: ['#openai_reasoning_summary', 'openai_reasoning_summary', false, false],
     meta_reasoning_summary: ['#meta_reasoning_summary', 'meta_reasoning_summary', false, false],
     verbosity: ['#openai_verbosity', 'verbosity', false, false],
     enable_web_search: ['#openai_enable_web_search', 'enable_web_search', true, false],
@@ -931,6 +932,7 @@ const default_settings = {
     claude_disable_thinking: false,
     reasoning_effort: reasoning_effort_types.auto,
     reasoning_mode: reasoning_mode_types.auto,
+    openai_reasoning_summary: 'auto',
     meta_reasoning_summary: 'auto',
     verbosity: verbosity_levels.auto,
     enable_web_search: false,
@@ -3722,7 +3724,10 @@ function getReasoningEffort(settings = null, model = null) {
                 return undefined;
             case reasoning_effort_types.min:
                 if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
-                    if (/^gpt-5\.(4|5|6)/.test(model)) {
+                    if (/^gpt-6-astra(?:$|-)/.test(model)) {
+                        return reasoning_effort_types.low;
+                    }
+                    if (/^gpt-5\.(?:1|2|4|5|6)(?:$|-)/.test(model)) {
                         return 'none';
                     }
                     if (/^gpt-5/.test(model)) {
@@ -3733,7 +3738,7 @@ function getReasoningEffort(settings = null, model = null) {
                 return reasoning_effort_types.low;
             case reasoning_effort_types.xhigh:
             case reasoning_effort_types.max:
-                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source) && /^(?:gpt-5\.6|gpt-6-astra)/.test(model)) {
+                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
                     return settings.reasoning_effort;
                 }
                 return reasoning_effort_types.high;
@@ -3932,6 +3937,7 @@ export async function createGenerationParameters(settings, model, type, messages
         'include_reasoning': Boolean(settings.show_thoughts),
         'reasoning_effort': getReasoningEffort(settings, model),
         'reasoning_mode': getOpenAIReasoningMode(settings, model),
+        'reasoning_summary': settings.chat_completion_source === chat_completion_sources.OPENAI ? settings.openai_reasoning_summary : undefined,
         'enable_web_search': Boolean(settings.enable_web_search),
         'request_images': Boolean(settings.request_images),
         'request_image_resolution': String(settings.request_image_resolution),
@@ -6135,6 +6141,8 @@ function setToolReasoningControls() {
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
     $('#openai_reasoning_mode_block').toggle(isOpenAIResponses);
     $('#openai_reasoning_mode').prop('disabled', !supportsReasoningMode);
+    $('#openai_reasoning_summary_block').toggle(isOpenAIResponses);
+    $('#openai_reasoning_summary').prop('disabled', !isOpenAIResponses || !isEnabled);
     $('#openai_prompt_caching').prop('disabled', !isOpenAIResponses);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
     $('#claude_disable_thinking_block').toggle(isClaudeOpus5);
@@ -6841,7 +6849,8 @@ function getMaxContextOpenAI(value) {
 
     /** @type {[RegExp, number][]} */
     const contextMap = [
-        [/^gpt-5\.[456]/, max_1mil],
+        [/^gpt-5\.4-(?:mini|nano)(?:$|-)/, max_400k],
+        [/^(?:gpt-5\.[456]|gpt-6-astra)(?:$|-)/, max_1mil],
         [/^gpt-5/, max_400k],
         [/gpt-4\.1/, max_1mil],
         [/gpt-audio/, max_128k],
@@ -8212,6 +8221,7 @@ export function isImageInliningSupported() {
         'gpt-4.5-preview',
         'gpt-4o',
         'gpt-5',
+        'gpt-6-astra',
         'o1',
         'o3',
         'o4-mini',
@@ -8283,7 +8293,7 @@ export function isImageInliningSupported() {
                 : oai_settings.openai_model;
             return visionSupportedModels.some(model =>
                 modelToCheck.includes(model)
-                && ['gpt-4-turbo-preview', 'o1-mini', 'o3-mini'].some(x => !modelToCheck.includes(x)),
+                && ['gpt-4-turbo-preview', 'o1-mini', 'o3-mini'].every(x => !modelToCheck.includes(x)),
             );
         }
         case chat_completion_sources.MAKERSUITE:
@@ -9287,6 +9297,11 @@ export function initOpenAI() {
 
     $('#openai_reasoning_mode').on('input', function () {
         oai_settings.reasoning_mode = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#openai_reasoning_summary').on('input', function () {
+        oai_settings.openai_reasoning_summary = String($(this).val());
         saveSettingsDebounced();
     });
 

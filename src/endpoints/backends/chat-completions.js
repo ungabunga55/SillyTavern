@@ -15,7 +15,6 @@ import {
     FEATHERLESS_HEADERS,
     GEMINI_SAFETY,
     NANOGPT_REASONING_EFFORT_MAP,
-    OPENAI_FIXED_REASONING_EFFORT,
     OPENAI_REASONING_EFFORT_MAP,
     OPENAI_REASONING_EFFORT_MODELS,
     OPENAI_VERBOSITY_MODELS,
@@ -380,22 +379,20 @@ function getOpenAIReasoningEffort(model, effort) {
         return undefined;
     }
 
-    if (/^gpt-6-astra(?:$|-)/.test(String(model || '').toLowerCase())) {
-        if (effort === 'none') {
-            return 'low';
-        }
+    const modelId = String(model || '').toLowerCase();
+    if (effort !== 'min') {
+        return effort;
     }
 
-    if (/^gpt-5\.6/.test(String(model || '').toLowerCase())) {
-        if (effort === 'min') {
-            return 'none';
-        }
-        if (['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) {
-            return effort;
-        }
+    if (/^gpt-6-astra(?:$|-)/.test(modelId)) {
+        return 'low';
     }
 
-    return OPENAI_FIXED_REASONING_EFFORT[model] ?? OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
+    if (/^gpt-5\.(?:1|2|4|5|6)(?:$|-)/.test(modelId)) {
+        return 'none';
+    }
+
+    return OPENAI_REASONING_EFFORT_MAP[effort] ?? effort;
 }
 
 /**
@@ -1519,7 +1516,9 @@ function buildOpenAIResponsesRequestBody(request, bodyParams, responsesInput) {
         reasoning.mode = mode;
     }
     if (request.body.include_reasoning && OPENAI_REASONING_EFFORT_MODELS.includes(request.body.model)) {
-        reasoning.summary = 'auto';
+        reasoning.summary = ['auto', 'concise', 'detailed'].includes(request.body.reasoning_summary)
+            ? request.body.reasoning_summary
+            : 'auto';
         reasoning.context = 'current_turn';
     }
 
