@@ -55,6 +55,7 @@ import {
     PROMPT_PROCESSING_TYPE,
     addAssistantPrefix,
     extractMoonshotThinkingPrefill,
+    normalizeReasoningContent,
     embedOpenRouterMedia,
     addReasoningContentToToolCalls,
     cachingSystemPromptForOpenRouter,
@@ -160,7 +161,7 @@ const NVIDIA_DEFAULT_ENABLED_PARAMETERS = [
 ];
 
 const MOONSHOT_KIMI_FIXED_PARAMETER_MODEL_REGEX = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
-const MOONSHOT_KIMI_K3_MODEL_REGEX = /^kimi-k3(?:$|[-.])/;
+const MOONSHOT_KIMI_MODEL_VERSION_REGEX = /^kimi-k(\d+)(?:$|[-._])/;
 const XAI_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh']);
 let openaiPromptCacheHmacKey;
 let fireworksPromptCacheHmacKey;
@@ -190,12 +191,13 @@ function isMoonshotKimiFixedParameterModel(model) {
 }
 
 /**
- * Checks if a Moonshot model belongs to the Kimi K3 family.
+ * Checks if a Moonshot model belongs to the Kimi K3 generation or newer.
  * @param {string} model Model identifier
- * @returns {boolean} True if the model uses K3 reasoning effort controls
+ * @returns {boolean} True if the model uses the K3 request shape
  */
-function isMoonshotKimiK3Model(model) {
-    return MOONSHOT_KIMI_K3_MODEL_REGEX.test(String(model || ''));
+function isMoonshotKimiK3OrNewerModel(model) {
+    const match = String(model || '').match(MOONSHOT_KIMI_MODEL_VERSION_REGEX);
+    return Boolean(match && Number(match[1]) >= 3);
 }
 
 /**
@@ -205,6 +207,33 @@ function isMoonshotKimiK3Model(model) {
  */
 function isOpenRouterMoonshotModel(model) {
     return /(?:^|\/)moonshotai\//i.test(String(model || ''));
+}
+
+/**
+ * Checks if a GLM model supports preserved thinking.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether the model is GLM 4.7 or newer
+ */
+function isGlmPreservedThinkingModel(model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    const match = nativeModel.match(/^glm-(\d+)(?:[.p](\d+))?(?:$|[-._:])/);
+    if (!match) {
+        return false;
+    }
+
+    const major = Number(match[1]);
+    const minor = Number(match[2] || 0);
+    return major > 4 || (major === 4 && minor >= 7);
+}
+
+/**
+ * Checks if an OpenRouter model is a supported Z.AI GLM model.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether preserved GLM reasoning can be replayed
+ */
+function isOpenRouterGlmModel(model) {
+    const modelId = String(model || '').toLowerCase();
+    return /^(?:z-ai|zai-org)\//.test(modelId) && isGlmPreservedThinkingModel(modelId);
 }
 
 /**
@@ -249,8 +278,8 @@ function isZaiAlwaysOnThinkingModel(model) {
  */
 function supportsFeatherlessPreservedThinking(family, model) {
     const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
-    if (family === 'glm') return /^glm-(?:4\.7|5(?:\.[123])?)(?:$|[-_.])/.test(nativeModel);
-    if (family === 'kimi') return /^kimi-k(?:2\.[567]|3)(?:$|[-_.])/.test(nativeModel);
+    if (family === 'glm') return isGlmPreservedThinkingModel(nativeModel);
+    if (family === 'kimi') return /^kimi-k2\.[567](?:$|[-_.])/.test(nativeModel) || isMoonshotKimiK3OrNewerModel(nativeModel);
     if (family === 'qwen') return /^qwen3\.[56](?:$|[-_.])/.test(nativeModel);
     return false;
 }
@@ -448,10 +477,12 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
     const family = getAtlascloudModelFamily(modelId);
     const includeReasoning = Boolean(request.body.include_reasoning);
     const thinkingPrefill = family === 'moonshot' && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
-    const preservedThinking = family === 'moonshot' && Boolean(request.body.moonshot_preserved_thinking);
+    const preservedMoonshotThinking = family === 'moonshot' && Boolean(request.body.moonshot_preserved_thinking);
+    const preservedGlmThinking = family === 'zai' && isGlmPreservedThinkingModel(nativeModel) && Boolean(request.body.glm_preserved_thinking);
+    const hasGlmToolCallHistory = family === 'zai' && Array.isArray(requestBody.messages) && requestBody.messages.some(message => Array.isArray(message?.tool_calls));
     const thinkingEnabled = family === 'moonshot'
-        ? isMoonshotKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedThinking
-        : includeReasoning;
+        ? isMoonshotKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedMoonshotThinking
+        : includeReasoning || preservedGlmThinking;
 
     function getReasoningEffort() {
         const effort = String(request.body.reasoning_effort || 'auto');
@@ -522,6 +553,10 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
         requestBody.top_p = requestBody.top_p || 0.01;
         delete requestBody.top_k;
         delete requestBody.repetition_penalty;
+        if (thinkingEnabled && (preservedGlmThinking || hasGlmToolCallHistory)) {
+            requestBody.thinking.clear_thinking = false;
+            normalizeReasoningContent(requestBody.messages, thinkingEnabled, preservedGlmThinking);
+        }
     }
 
     if (family === 'deepseek') {
@@ -581,7 +616,7 @@ function sanitizeAtlascloudRequestBody(requestBody, request) {
     }
 
     if (family === 'moonshot') {
-        normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled, preservedThinking);
+        normalizeReasoningContent(requestBody.messages, thinkingEnabled, preservedMoonshotThinking);
         if (thinkingPrefill) {
             extractMoonshotThinkingPrefill(requestBody.messages);
             addAssistantPrefix(requestBody.messages, [], 'partial', true);
@@ -758,9 +793,12 @@ function sanitizeFireworksRequestBody(requestBody, request) {
     const family = getFireworksModelFamily(modelId);
     const includeReasoning = Boolean(request.body.include_reasoning);
     const isMoonshot = isFireworksMoonshotModel(modelId);
+    const isGlm = isFireworksGlmModel(modelId);
     const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
-    const preservedThinking = isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
-    const useMoonshotOptions = thinkingPrefill || preservedThinking;
+    const preservedMoonshotThinking = isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
+    const preservedGlmThinking = isGlm && Boolean(request.body.glm_preserved_thinking);
+    const hasGlmToolCallHistory = isGlm && Array.isArray(requestBody.messages) && requestBody.messages.some(message => Array.isArray(message?.tool_calls));
+    const useMoonshotOptions = thinkingPrefill || preservedMoonshotThinking;
 
     function getReasoningEffort() {
         const effort = String(request.body.reasoning_effort || 'auto');
@@ -804,10 +842,10 @@ function sanitizeFireworksRequestBody(requestBody, request) {
         delete requestBody.stop;
     }
 
-    if (family === 'zai' || family === 'deepseek' || family === 'moonshot' || family === 'qwen' || useMoonshotOptions) {
+    if (family === 'zai' || family === 'deepseek' || family === 'moonshot' || family === 'qwen' || useMoonshotOptions || preservedGlmThinking || hasGlmToolCallHistory) {
         const thinkingEnabled = family === 'moonshot' || useMoonshotOptions
-            ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedThinking
-            : includeReasoning;
+            ? isFireworksKimiAlwaysOnThinkingModel(nativeModel) || includeReasoning || thinkingPrefill || preservedMoonshotThinking
+            : includeReasoning || preservedGlmThinking;
         const reasoningEffort = getReasoningEffort();
         if (reasoningEffort) {
             requestBody.reasoning_effort = reasoningEffort;
@@ -815,12 +853,16 @@ function sanitizeFireworksRequestBody(requestBody, request) {
             requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
         }
 
-        if (family === 'moonshot' || useMoonshotOptions) {
-            normalizeMoonshotReasoningContent(requestBody.messages, thinkingEnabled, preservedThinking);
+        if (family === 'moonshot' || useMoonshotOptions || preservedGlmThinking || hasGlmToolCallHistory) {
+            normalizeReasoningContent(requestBody.messages, thinkingEnabled, preservedMoonshotThinking || preservedGlmThinking);
             if (thinkingPrefill) {
                 extractMoonshotThinkingPrefill(requestBody.messages);
                 addAssistantPrefix(requestBody.messages, [], 'partial', true);
             }
+        }
+
+        if (preservedMoonshotThinking || preservedGlmThinking) {
+            requestBody.reasoning_history = 'preserved';
         }
     } else {
         delete requestBody.thinking;
@@ -1035,6 +1077,15 @@ function getFireworksModelFamily(modelId) {
 function isFireworksMoonshotModel(modelId) {
     const nativeModel = modelId.split('/').pop() || modelId;
     return /^kimi(?:$|[-_.])/.test(nativeModel) || /(?:^|\/)moonshotai(?:\/|$)/.test(modelId);
+}
+
+/**
+ * Checks if a Fireworks model is a supported GLM model.
+ * @param {string} modelId Lower-cased Fireworks model id
+ * @returns {boolean} Whether preserved GLM reasoning can be replayed
+ */
+function isFireworksGlmModel(modelId) {
+    return isGlmPreservedThinkingModel(modelId);
 }
 
 /**
@@ -1579,38 +1630,6 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
         logprobs: bodyParams.logprobs,
         top_logprobs: bodyParams.top_logprobs,
     });
-}
-
-/**
- * Moves SillyTavern's internal reasoning field to Moonshot's reasoning_content field.
- * @param {object[]} messages Prompt messages
- * @param {boolean} thinkingEnabled Whether the request uses Moonshot thinking mode
- * @param {boolean} preservedThinking Whether assistant reasoning history should be retained
- * @returns {void}
- */
-function normalizeMoonshotReasoningContent(messages, thinkingEnabled, preservedThinking) {
-    if (!Array.isArray(messages)) {
-        return;
-    }
-
-    for (const message of messages) {
-        const hasToolCalls = Array.isArray(message.tool_calls);
-        const hasReasoning = typeof message.reasoning === 'string' && message.reasoning.length > 0;
-        const shouldIncludeReasoning = thinkingEnabled && (hasToolCalls || (preservedThinking && message.role === 'assistant' && hasReasoning));
-        if (shouldIncludeReasoning && hasReasoning) {
-            message.reasoning_content = message.reasoning;
-        }
-        delete message.reasoning;
-
-        if (!shouldIncludeReasoning) {
-            delete message.reasoning_content;
-            continue;
-        }
-
-        if (thinkingEnabled && !('reasoning_content' in message)) {
-            message.reasoning_content = '';
-        }
-    }
 }
 
 /**
@@ -4016,6 +4035,7 @@ router.post('/generate', async function (request, response) {
             headers = getOpenRouterHeaders(request.body);
             const includeReasoning = Boolean(request.body.include_reasoning);
             const isMoonshot = isOpenRouterMoonshotModel(request.body.model);
+            const isGlm = isOpenRouterGlmModel(request.body.model);
             bodyParams = {
                 transforms: getOpenRouterTransforms(request),
                 reasoning: {
@@ -4090,7 +4110,11 @@ router.post('/generate', async function (request, response) {
                 addOpenRouterSignatures(request.body.messages, request.body.model);
 
                 if (isMoonshot) {
-                    normalizeMoonshotReasoningContent(request.body.messages, true, Boolean(request.body.moonshot_preserved_thinking));
+                    normalizeReasoningContent(request.body.messages, true, Boolean(request.body.moonshot_preserved_thinking));
+                }
+
+                if (isGlm) {
+                    normalizeReasoningContent(request.body.messages, true, Boolean(request.body.glm_preserved_thinking));
                 }
 
                 if (isClaude) {
@@ -4303,7 +4327,9 @@ router.post('/generate', async function (request, response) {
             const isMoonshot = isFeatherlessMoonshotModel(request.body.model);
             const thinkingPrefill = isMoonshot && Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
             const nativeModel = String(request.body.model || '').toLowerCase().split('/').pop() || '';
-            const preservedThinking = family !== 'generic' && Boolean(request.body.moonshot_preserved_thinking);
+            const preservedMoonshotThinking = family === 'kimi' && isMoonshot && Boolean(request.body.moonshot_preserved_thinking);
+            const preservedGlmThinking = family === 'glm' && supportsFeatherlessPreservedThinking(family, request.body.model) && Boolean(request.body.glm_preserved_thinking);
+            const preservedThinking = preservedMoonshotThinking || preservedGlmThinking;
             const alwaysOnThinking = (family === 'glm' && isZaiAlwaysOnThinkingModel(nativeModel))
                 || (family === 'kimi' && /^(?:kimi-k2\.7-code|kimi-k2[-_.]thinking(?:$|[-_.]))/.test(nativeModel))
                 || family === 'minimax';
@@ -4322,14 +4348,12 @@ router.post('/generate', async function (request, response) {
             delete chatTemplateKwargs.do_reasoning;
             chatTemplateKwargs.enable_thinking = thinkingEnabled;
 
-            if (preservedThinking && supportsFeatherlessPreservedThinking(family, request.body.model)) {
-                if (family === 'glm') {
-                    chatTemplateKwargs.clear_thinking ??= false;
-                } else {
-                    chatTemplateKwargs.preserve_thinking ??= true;
-                }
+            if (preservedGlmThinking) {
+                chatTemplateKwargs.clear_thinking ??= false;
+            } else if (preservedMoonshotThinking && supportsFeatherlessPreservedThinking(family, request.body.model)) {
+                chatTemplateKwargs.preserve_thinking ??= true;
             }
-            if (family === 'glm' && alwaysOnThinking && Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls))) {
+            if (family === 'glm' && thinkingEnabled && Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls))) {
                 chatTemplateKwargs.clear_thinking = false;
             }
 
@@ -4343,7 +4367,7 @@ router.post('/generate', async function (request, response) {
             };
 
             const supportsReasoningEffort = (family === 'glm' && /^glm-5\.[23](?:$|[-_.])/.test(nativeModel))
-                || (family === 'kimi' && /^kimi-k3(?:$|[-_.])/.test(nativeModel));
+                || (family === 'kimi' && isMoonshotKimiK3OrNewerModel(nativeModel));
             if (thinkingEnabled && supportsReasoningEffort && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
                 bodyParams.reasoning_effort = family === 'glm' && request.body.reasoning_effort === 'min'
                     ? (alwaysOnThinking ? 'low' : 'minimal')
@@ -4351,7 +4375,7 @@ router.post('/generate', async function (request, response) {
             }
 
             if (family !== 'generic') {
-                normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
+                normalizeReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
                 if (thinkingPrefill) {
                     extractMoonshotThinkingPrefill(request.body.messages);
                     addAssistantPrefix(request.body.messages, [], 'partial', true);
@@ -4380,21 +4404,21 @@ router.post('/generate', async function (request, response) {
             apiUrl = new URL(request.body.reverse_proxy || API_MOONSHOT).toString();
             apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MOONSHOT, request.body.secret_id);
             headers = {};
-            const isKimiK3 = isMoonshotKimiK3Model(request.body.model);
+            const usesKimiK3RequestShape = isMoonshotKimiK3OrNewerModel(request.body.model);
             const thinkingPrefill = Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
             const preservedThinking = Boolean(request.body.moonshot_preserved_thinking);
             const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill || preservedThinking;
-            bodyParams = isKimiK3 && thinkingEnabled
+            bodyParams = usesKimiK3RequestShape && thinkingEnabled
                 ? {}
                 : {
                     thinking: {
                         type: thinkingEnabled ? 'enabled' : 'disabled',
                     },
                 };
-            if (isKimiK3 && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
+            if (usesKimiK3RequestShape && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
                 bodyParams.reasoning_effort = request.body.reasoning_effort;
             }
-            normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
+            normalizeReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
             if (request.body.json_schema) {
                 setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
             } else {
@@ -4432,7 +4456,9 @@ router.post('/generate', async function (request, response) {
                 }
             }
             const alwaysOnThinking = isZaiAlwaysOnThinkingModel(request.body.model);
-            const thinkingEnabled = alwaysOnThinking || Boolean(request.body.include_reasoning);
+            const preservedThinking = isGlmPreservedThinkingModel(request.body.model) && Boolean(request.body.glm_preserved_thinking);
+            const thinkingEnabled = alwaysOnThinking || Boolean(request.body.include_reasoning) || preservedThinking;
+            const hasToolCallHistory = Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls));
             bodyParams = {
                 thinking: {
                     type: thinkingEnabled ? 'enabled' : 'disabled',
@@ -4443,9 +4469,9 @@ router.post('/generate', async function (request, response) {
                     ? 'low'
                     : request.body.reasoning_effort;
             }
-            if (alwaysOnThinking) {
-                normalizeMoonshotReasoningContent(request.body.messages, thinkingEnabled, false);
-                if (Array.isArray(request.body.messages) && request.body.messages.some(message => Array.isArray(message?.tool_calls))) {
+            if (alwaysOnThinking || preservedThinking || hasToolCallHistory) {
+                normalizeReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
+                if (thinkingEnabled && (preservedThinking || hasToolCallHistory)) {
                     bodyParams.thinking.clear_thinking = false;
                 }
             }

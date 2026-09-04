@@ -2259,6 +2259,29 @@
                                             </span>
                                         </div>
                                     </div>
+                                    <div class="range-block" data-source="zai,openrouter,fireworks,atlascloud,featherless">
+                                        <label for="glm_preserved_thinking" class="checkbox_label widthFreeExpand">
+                                            <input id="glm_preserved_thinking" type="checkbox" />
+                                            <span data-i18n="Preserve GLM thinking">Preserve GLM thinking</span>
+                                        </label>
+                                        <div class="flex-container oneline-dropdown marginTop10">
+                                            <label for="glm_preserved_thinking_count" data-i18n="Recent thinking messages">
+                                                Recent thinking messages
+                                            </label>
+                                            <div class="flex-container">
+                                                <input id="glm_preserved_thinking_count" class="text_pole widthUnset" type="number" min="1" max="1000" step="1" />
+                                                <label for="glm_preserved_thinking_all" class="checkbox_label widthUnset">
+                                                    <input id="glm_preserved_thinking_all" type="checkbox" />
+                                                    <span data-i18n="All">All</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="toggle-description justifyLeft marginTop5">
+                                            <span data-i18n="Sends reasoning from all or the specified number of most recent GLM assistant turns. Only GLM 4.7 and newer models are supported.">
+                                                Sends reasoning from all or the specified number of most recent GLM assistant turns. Only GLM 4.7 and newer models are supported.
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10" data-source="openai,agentrouter,venice,custom,claude,meta,xai,makersuite,vertexai,aimlapi,openrouter,requesty,pollinations,perplexity,cometapi,electronhub,azure_openai,chutes,nanogpt,deepseek,nvidia,mistralai,zai,atlascloud,fireworks,moonshot,featherless">
                                         <div class="flex-container oneline-dropdown" title="Constrains effort on reasoning for reasoning models.&#10;Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response." data-i18n="[title]Constrains effort on reasoning for reasoning models.">
                                             <label for="openai_reasoning_effort">

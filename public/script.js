@@ -107,6 +107,7 @@ import {
     openai_messages_count,
     chat_completion_sources,
     getChatCompletionModel,
+    isGlmProviderModel,
     shouldCaptureReasoningForTools,
     proxies,
     loadProxyPresets,
@@ -3763,6 +3764,15 @@ class StreamingProcessor {
         this.reasoningDetails = [];
         /** @type {string} Reasoning text to preserve in tool-call chains. */
         this.toolReasoning = '';
+        /** @type {string} Existing raw GLM reasoning when continuing a message. */
+        const previousMessage = chat.at(-1);
+        this.previousGlmReasoning = type === 'continue'
+            && previousMessage?.extra?.api === getGeneratingApi()
+            && previousMessage?.extra?.model === getGeneratingModel()
+            ? String(previousMessage.extra.glm_reasoning_content ?? '')
+            : '';
+        /** @type {string[]} Raw GLM reasoning for alternate swipes. */
+        this.glmReasoningSwipes = [];
         /** @type {object[]} Complete Claude thinking blocks. */
         this.claudeThinkingBlocks = [];
         /** @type {object?} Anthropic response envelope metadata. */
@@ -3964,18 +3974,36 @@ class StreamingProcessor {
             message.extra.venice_reasoning_content = this.toolReasoning;
         }
 
+        const preserveGlmReasoning = main_api === 'openai'
+            && oai_settings.glm_preserved_thinking
+            && isGlmProviderModel(oai_settings.chat_completion_source, getChatCompletionModel());
+        message.extra = message.extra || {};
+        if (preserveGlmReasoning && this.toolReasoning) {
+            message.extra.glm_reasoning_content = this.previousGlmReasoning + this.toolReasoning;
+        } else {
+            delete message.extra.glm_reasoning_content;
+        }
+
         if (Array.isArray(this.swipes) && this.swipes.length > 0) {
             const swipeInfoExtra = structuredClone(message.extra ?? {});
             delete swipeInfoExtra.token_count;
             delete swipeInfoExtra.reasoning;
             delete swipeInfoExtra.reasoning_duration;
+            delete swipeInfoExtra.glm_reasoning_content;
             const swipeInfo = {
                 send_date: message.send_date,
                 gen_started: message.gen_started,
                 gen_finished: message.gen_finished,
                 extra: swipeInfoExtra,
             };
-            const swipeInfoArray = Array(this.swipes.length).fill().map(() => structuredClone(swipeInfo));
+            const swipeInfoArray = this.swipes.map((_, index) => {
+                const info = structuredClone(swipeInfo);
+                const swipeReasoning = this.glmReasoningSwipes[index];
+                if (preserveGlmReasoning && swipeReasoning) {
+                    info.extra.glm_reasoning_content = swipeReasoning;
+                }
+                return info;
+            });
             parseReasoningInSwipes(this.swipes, swipeInfoArray, message.extra?.reasoning_duration);
             message.swipes.push(...this.swipes);
             message.swipe_info.push(...swipeInfoArray);
@@ -4095,6 +4123,7 @@ class StreamingProcessor {
                 // Get the updated reasoning string into the handler
                 this.reasoningHandler.updateReasoning(this.messageId, state?.reasoning);
                 this.toolReasoning = state?.toolReasoning || this.reasoningHandler.reasoning;
+                this.glmReasoningSwipes = Array.isArray(state?.reasoningSwipes) ? [...state.reasoningSwipes] : [];
                 this.images = state?.images ?? [];
                 this.reasoningSignature = state?.signature ?? null;
                 this.reasoningDetails = Array.isArray(state?.reasoningDetails)
@@ -5699,6 +5728,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         //const getData = await response.json();
         let getMessage = extractMessageFromData(data);
         let title = extractTitleFromData(data);
+        const rawReasoning = extractReasoningFromData(data, { ignoreShowThoughts: true });
         let reasoning = extractReasoningFromData(data);
         let toolReasoning = reasoning;
         let imageUrls = extractImagesFromData(data);
@@ -5724,9 +5754,12 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             reasoning = reasoning.trim();
         }
 
+        const isGlmReasoningModel = main_api === 'openai'
+            && isGlmProviderModel(oai_settings.chat_completion_source, getChatCompletionModel());
+        const preserveGlmReasoning = isGlmReasoningModel && oai_settings.glm_preserved_thinking;
         if (main_api === 'openai' && shouldCaptureReasoningForTools(oai_settings.chat_completion_source, getChatCompletionModel())) {
-            toolReasoning = getRegexedString(extractReasoningFromData(data, { ignoreShowThoughts: true }), regex_placement.REASONING);
-            if (power_user.trim_spaces) {
+            toolReasoning = isGlmReasoningModel ? rawReasoning : getRegexedString(rawReasoning, regex_placement.REASONING);
+            if (!isGlmReasoningModel && power_user.trim_spaces) {
                 toolReasoning = toolReasoning.trim();
             }
         } else {
@@ -5735,6 +5768,10 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         const veniceReasoningContent = oai_settings.chat_completion_source === chat_completion_sources.VENICE && oai_settings.venice_preserved_reasoning
             ? toolReasoning
             : '';
+        const glmReasoningContent = preserveGlmReasoning ? rawReasoning : '';
+        const glmReasoningSwipes = preserveGlmReasoning && Array.isArray(data?.choices)
+            ? data.choices.slice(1).map(choice => extractReasoningFromData({ choices: [choice] }, { ignoreShowThoughts: true }))
+            : [];
 
         if (isContinue) {
             continue_mag = promptReasoning.removePrefix(continue_mag);
@@ -5759,9 +5796,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         } else {
             // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
             if (originalType !== 'continue') {
-                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks, anthropicMetadata }));
+                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, glmReasoningContent, glmReasoningSwipes, claudeThinkingBlocks, anthropicMetadata }));
             } else {
-                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, claudeThinkingBlocks, anthropicMetadata }));
+                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, reasoningDetails, veniceReasoningContent, glmReasoningContent, glmReasoningSwipes, claudeThinkingBlocks, anthropicMetadata }));
             }
 
             // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
@@ -6917,6 +6954,8 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {string?} [reasoningSignature] Encrypted signature of the reasoning text
  * @property {object[]} [reasoningDetails] Opaque Venice reasoning metadata
  * @property {string} [veniceReasoningContent] Hidden Venice reasoning preserved for later turns
+ * @property {string} [glmReasoningContent] Exact GLM reasoning preserved for later turns
+ * @property {string[]} [glmReasoningSwipes] Exact GLM reasoning for alternate swipes
  * @property {object[]} [claudeThinkingBlocks] Complete opaque Claude thinking blocks
  * @property {object?} [anthropicMetadata] Anthropic response envelope metadata
  *
@@ -6924,7 +6963,7 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {string} type Type of generation
  * @property {string} getMessage Generated message
  */
-export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, reasoningDetails = [], veniceReasoningContent = '', claudeThinkingBlocks = [], anthropicMetadata = null }) {
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, reasoningDetails = [], veniceReasoningContent = '', glmReasoningContent = '', glmReasoningSwipes = [], claudeThinkingBlocks = [], anthropicMetadata = null }) {
     // Backward compatibility
     if (arguments.length > 1 && typeof arguments[0] !== 'object') {
         console.trace('saveReply called with positional arguments. Please use an object instead.');
@@ -6952,6 +6991,19 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     }
     claudeThinkingBlocks = Array.isArray(claudeThinkingBlocks) ? structuredClone(claudeThinkingBlocks) : [];
     reasoningDetails = Array.isArray(reasoningDetails) ? structuredClone(reasoningDetails) : [];
+    glmReasoningSwipes = Array.isArray(glmReasoningSwipes) ? [...glmReasoningSwipes] : [];
+    const canAppendGlmReasoning = ['append', 'continue', 'appendFinal'].includes(type)
+        && lastMessage?.extra?.api === getGeneratingApi()
+        && lastMessage?.extra?.model === getGeneratingModel();
+
+    const setGlmReasoningContent = (extra) => {
+        if (glmReasoningContent) {
+            const previousReasoning = canAppendGlmReasoning ? String(extra.glm_reasoning_content ?? '') : '';
+            extra.glm_reasoning_content = previousReasoning + glmReasoningContent;
+        } else if (!fromStreaming) {
+            delete extra.glm_reasoning_content;
+        }
+    };
 
     let oldMessage = '';
     const generationFinished = new Date();
@@ -6975,6 +7027,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
             lastMessage.extra.api = getGeneratingApi();
             lastMessage.extra.model = getGeneratingModel();
             lastMessage.extra.reasoning = reasoning;
+            setGlmReasoningContent(lastMessage.extra);
             lastMessage.extra.reasoning_duration = null;
             lastMessage.extra.reasoning_signature = reasoningSignature;
             if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
@@ -7005,6 +7058,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.api = getGeneratingApi();
         lastMessage.extra.model = getGeneratingModel();
         lastMessage.extra.reasoning = reasoning;
+        setGlmReasoningContent(lastMessage.extra);
         lastMessage.extra.reasoning_duration = null;
         lastMessage.extra.reasoning_signature = reasoningSignature;
         if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
@@ -7032,6 +7086,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         lastMessage.extra.api = getGeneratingApi();
         lastMessage.extra.model = getGeneratingModel();
         lastMessage.extra.reasoning += reasoning;
+        setGlmReasoningContent(lastMessage.extra);
         lastMessage.extra.reasoning_signature = reasoningSignature;
         if (reasoningDetails.length > 0) lastMessage.extra.venice_reasoning_details = reasoningDetails;
         else delete lastMessage.extra.venice_reasoning_details;
@@ -7059,6 +7114,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         newMessage.extra.api = getGeneratingApi();
         newMessage.extra.model = getGeneratingModel();
         newMessage.extra.reasoning = reasoning;
+        setGlmReasoningContent(newMessage.extra);
         newMessage.extra.reasoning_duration = null;
         newMessage.extra.reasoning_signature = reasoningSignature;
         if (reasoningDetails.length > 0) newMessage.extra.venice_reasoning_details = reasoningDetails;
@@ -7129,13 +7185,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
         delete swipeInfoExtra.token_count;
         delete swipeInfoExtra.reasoning;
         delete swipeInfoExtra.reasoning_duration;
+        delete swipeInfoExtra.glm_reasoning_content;
         const swipeInfo = {
             send_date: item.send_date,
             gen_started: item.gen_started,
             gen_finished: item.gen_finished,
             extra: swipeInfoExtra,
         };
-        const swipeInfoArray = Array(swipes.length).fill().map(() => structuredClone(swipeInfo));
+        const swipeInfoArray = swipes.map((_, index) => {
+            const info = structuredClone(swipeInfo);
+            const swipeReasoning = glmReasoningSwipes[index];
+            if (swipeReasoning) {
+                info.extra.glm_reasoning_content = swipeReasoning;
+            }
+            return info;
+        });
         parseReasoningInSwipes(swipes, swipeInfoArray, item.extra?.reasoning_duration);
         item.swipes.push(...swipes);
         item.swipe_info.push(...swipeInfoArray);

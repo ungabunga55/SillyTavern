@@ -121,6 +121,38 @@ export function extractMoonshotThinkingPrefill(messages) {
 }
 
 /**
+ * Moves SillyTavern's internal reasoning field to an OpenAI-compatible reasoning_content field.
+ * @param {object[]} messages Prompt messages
+ * @param {boolean} thinkingEnabled Whether the request uses thinking mode
+ * @param {boolean} preservedThinking Whether assistant reasoning history should be retained
+ * @returns {void}
+ */
+export function normalizeReasoningContent(messages, thinkingEnabled, preservedThinking) {
+    if (!Array.isArray(messages)) {
+        return;
+    }
+
+    for (const message of messages) {
+        const hasToolCalls = Array.isArray(message.tool_calls);
+        const hasReasoning = typeof message.reasoning === 'string' && message.reasoning.length > 0;
+        const shouldIncludeReasoning = thinkingEnabled && (hasToolCalls || (preservedThinking && message.role === 'assistant' && hasReasoning));
+        if (shouldIncludeReasoning && hasReasoning) {
+            message.reasoning_content = message.reasoning;
+        }
+        delete message.reasoning;
+
+        if (!shouldIncludeReasoning) {
+            delete message.reasoning_content;
+            continue;
+        }
+
+        if (!('reasoning_content' in message)) {
+            message.reasoning_content = '';
+        }
+    }
+}
+
+/**
  * Applies a post-processing step to the generated messages.
  * @param {object[]} messages Messages to post-process
  * @param {string} type Prompt conversion type

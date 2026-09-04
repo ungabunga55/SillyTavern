@@ -117,6 +117,41 @@ describe('extractMoonshotThinkingPrefill', () => {
 });
 
 
+describe('normalizeReasoningContent', () => {
+    test('preserves exact reasoning on selected assistant turns', () => {
+        const prompt = [
+            { role: 'user', content: 'hi', reasoning: 'remove me' },
+            { role: 'assistant', content: 'hello', reasoning: '  exact\nreasoning  ' },
+        ];
+        mod.normalizeReasoningContent(prompt, true, true);
+        expect(prompt).toEqual([
+            { role: 'user', content: 'hi' },
+            { role: 'assistant', content: 'hello', reasoning_content: '  exact\nreasoning  ' },
+        ]);
+    });
+
+    test('retains reasoning only for tool calls when history preservation is disabled', () => {
+        const prompt = [
+            { role: 'assistant', content: 'earlier', reasoning: 'remove me' },
+            { role: 'assistant', content: '', reasoning: 'tool reasoning', tool_calls: [] },
+            { role: 'assistant', content: '', tool_calls: [] },
+        ];
+        mod.normalizeReasoningContent(prompt, true, false);
+        expect(prompt).toEqual([
+            { role: 'assistant', content: 'earlier' },
+            { role: 'assistant', content: '', reasoning_content: 'tool reasoning', tool_calls: [] },
+            { role: 'assistant', content: '', reasoning_content: '', tool_calls: [] },
+        ]);
+    });
+
+    test('removes reasoning fields when thinking is disabled', () => {
+        const prompt = [{ role: 'assistant', content: 'hello', reasoning: 'hidden', reasoning_content: 'stale' }];
+        mod.normalizeReasoningContent(prompt, false, true);
+        expect(prompt).toEqual([{ role: 'assistant', content: 'hello' }]);
+    });
+});
+
+
 describe('convertTextCompletionPrompt', () => {
     test('passes through string input unchanged', () => {
         expect(mod.convertTextCompletionPrompt('raw prompt')).toBe('raw prompt');

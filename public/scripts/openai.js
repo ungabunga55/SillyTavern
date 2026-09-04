@@ -284,7 +284,7 @@ export const tool_reasoning_modes = {
 };
 
 const moonshotKimiFixedParameterModelRegex = /^kimi-k2(?:\.5|\.6|\.7-code|-0905-preview|-turbo-preview|-thinking|-thinking-turbo)$/;
-const moonshotKimiK3ModelRegex = /^kimi-k3(?:$|[-.])/;
+const moonshotKimiModelVersionRegex = /^kimi-k(\d+)(?:$|[-._])/;
 const claudeLegacySamplingModelRegexes = [
     /^claude-2(?:$|[-.])/,
     /^claude-instant(?:$|-)/,
@@ -349,12 +349,13 @@ export function isMoonshotKimiFixedParameterModel(model) {
 }
 
 /**
- * Checks if a Moonshot model belongs to the Kimi K3 family.
+ * Checks if a Moonshot model belongs to the Kimi K3 generation or newer.
  * @param {string} model Model identifier
- * @returns {boolean} True if the model uses K3 reasoning effort controls
+ * @returns {boolean} True if the model uses the K3 request shape
  */
-function isMoonshotKimiK3Model(model) {
-    return moonshotKimiK3ModelRegex.test(String(model || ''));
+function isMoonshotKimiK3OrNewerModel(model) {
+    const match = String(model || '').match(moonshotKimiModelVersionRegex);
+    return Boolean(match && Number(match[1]) >= 3);
 }
 
 /**
@@ -386,6 +387,48 @@ function isMoonshotProviderModel(source, model) {
             return modelId.includes('moonshot') || modelId.includes('kimi');
         case chat_completion_sources.FEATHERLESS:
             return /(?:^|\/)moonshotai\//.test(modelId);
+        default:
+            return false;
+    }
+}
+
+/**
+ * Checks if a GLM model supports preserved thinking.
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether the model is GLM 4.7 or newer
+ */
+function isGlmPreservedThinkingModel(model) {
+    const nativeModel = String(model || '').toLowerCase().split('/').pop() || '';
+    const match = nativeModel.match(/^glm-(\d+)(?:[.p](\d+))?(?:$|[-._:])/);
+    if (!match) {
+        return false;
+    }
+
+    const major = Number(match[1]);
+    const minor = Number(match[2] || 0);
+    return major > 4 || (major === 4 && minor >= 7);
+}
+
+/**
+ * Checks if the selected provider model supports GLM preserved thinking.
+ * @param {string} source Chat completion source
+ * @param {string} model Model identifier
+ * @returns {boolean} Whether GLM reasoning history can be replayed
+ */
+export function isGlmProviderModel(source, model) {
+    if (!isGlmPreservedThinkingModel(model)) {
+        return false;
+    }
+
+    const modelId = String(model || '').toLowerCase();
+    switch (source) {
+        case chat_completion_sources.ZAI:
+        case chat_completion_sources.FIREWORKS:
+        case chat_completion_sources.ATLASCLOUD:
+        case chat_completion_sources.FEATHERLESS:
+            return true;
+        case chat_completion_sources.OPENROUTER:
+            return /^(?:z-ai|zai-org)\//.test(modelId);
         default:
             return false;
     }
@@ -437,17 +480,22 @@ export function shouldCaptureReasoningForTools(source, model) {
     if (source === chat_completion_sources.VENICE) {
         return true;
     }
+    if (isGlmProviderModel(source, model)) {
+        return true;
+    }
     if (source === chat_completion_sources.MOONSHOT) {
-        return isMoonshotKimiAlwaysOnThinkingModel(model);
+        return isMoonshotKimiAlwaysOnThinkingModel(model)
+            || (oai_settings.moonshot_preserved_thinking && isMoonshotProviderModel(source, model));
     }
     if (source === chat_completion_sources.ZAI) {
-        return isZaiAlwaysOnThinkingModel(model);
+        return isZaiAlwaysOnThinkingModel(model)
+            || (oai_settings.glm_preserved_thinking && isGlmProviderModel(source, model));
     }
-    if (source !== chat_completion_sources.FEATHERLESS) {
-        return false;
+    if (source === chat_completion_sources.FEATHERLESS && isFeatherlessAlwaysOnThinkingModel(model)) {
+        return true;
     }
-    return isFeatherlessAlwaysOnThinkingModel(model)
-        || (oai_settings.moonshot_preserved_thinking && isFeatherlessReasoningHistoryModel(model));
+    return (oai_settings.moonshot_preserved_thinking && isMoonshotProviderModel(source, model))
+        || (oai_settings.glm_preserved_thinking && isGlmProviderModel(source, model));
 }
 
 /**
@@ -668,6 +716,9 @@ export const settingsToUpdate = {
     moonshot_preserved_thinking: ['#moonshot_preserved_thinking', 'moonshot_preserved_thinking', true, false],
     moonshot_preserved_thinking_all: ['#moonshot_preserved_thinking_all', 'moonshot_preserved_thinking_all', true, false],
     moonshot_preserved_thinking_count: ['#moonshot_preserved_thinking_count', 'moonshot_preserved_thinking_count', false, false],
+    glm_preserved_thinking: ['#glm_preserved_thinking', 'glm_preserved_thinking', true, false],
+    glm_preserved_thinking_all: ['#glm_preserved_thinking_all', 'glm_preserved_thinking_all', true, false],
+    glm_preserved_thinking_count: ['#glm_preserved_thinking_count', 'glm_preserved_thinking_count', false, false],
     claude_preserved_thinking: ['#claude_preserved_thinking', 'claude_preserved_thinking', true, false],
     claude_preserved_thinking_all: ['#claude_preserved_thinking_all', 'claude_preserved_thinking_all', true, false],
     claude_preserved_thinking_count: ['#claude_preserved_thinking_count', 'claude_preserved_thinking_count', false, false],
@@ -908,6 +959,9 @@ const default_settings = {
     moonshot_preserved_thinking: false,
     moonshot_preserved_thinking_all: false,
     moonshot_preserved_thinking_count: 3,
+    glm_preserved_thinking: false,
+    glm_preserved_thinking_all: false,
+    glm_preserved_thinking_count: 3,
     claude_preserved_thinking: false,
     claude_preserved_thinking_all: false,
     claude_preserved_thinking_count: 3,
@@ -1071,11 +1125,17 @@ function setOpenAIMessages(chat) {
             && oai_settings.venice_preserved_reasoning
             && typeof chat[j]?.extra?.venice_reasoning_content === 'string'
             && chat[j].extra.venice_reasoning_content.length > 0;
+        const preserveGlmReasoning = oai_settings.glm_preserved_thinking && isGlmProviderModel(currentApi, currentModel);
+        const hasPreservedGlmReasoning = preserveGlmReasoning
+            && typeof chat[j]?.extra?.glm_reasoning_content === 'string'
+            && chat[j].extra.glm_reasoning_content.length > 0;
         const signature = isSameModel && !isOtherGroupMember && !useNativeResponses && (!isVenice || preserveVeniceReasoning) ? chat[j]?.extra?.reasoning_signature : null;
         const visibleReasoning = String(chat[j]?.extra?.reasoning ?? '');
         const preservedReasoning = isVenice
             ? (preserveVeniceReasoning ? String(chat[j].extra.venice_reasoning_content) : '')
-            : visibleReasoning;
+            : preserveGlmReasoning
+                ? (hasPreservedGlmReasoning ? String(chat[j].extra.glm_reasoning_content) : '')
+                : visibleReasoning;
         const reasoning = isSameModel && !isOtherGroupMember && !useNativeResponses ? preservedReasoning : '';
         const reasoningDetails = isSameModel && !isOtherGroupMember && preserveVeniceReasoning && Array.isArray(chat[j]?.extra?.venice_reasoning_details)
             ? structuredClone(chat[j].extra.venice_reasoning_details)
@@ -1395,17 +1455,20 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const includeSignature = isReasoningSignatureSupported();
     const reasoningModel = getChatCompletionModel(oai_settings);
     const isMoonshotModel = isMoonshotProviderModel(oai_settings.chat_completion_source, reasoningModel);
+    const isGlmModel = isGlmProviderModel(oai_settings.chat_completion_source, reasoningModel);
     const isFeatherlessReasoningModel = oai_settings.chat_completion_source === chat_completion_sources.FEATHERLESS
         && isFeatherlessReasoningHistoryModel(reasoningModel);
     const isZaiAlwaysOnThinking = oai_settings.chat_completion_source === chat_completion_sources.ZAI
         && isZaiAlwaysOnThinkingModel(reasoningModel);
     const isVenice = oai_settings.chat_completion_source === chat_completion_sources.VENICE;
-    const supportsThinkingHistory = isMoonshotModel || isFeatherlessReasoningModel || isZaiAlwaysOnThinking;
-    const preserveMoonshotThinkingHistory = oai_settings.moonshot_preserved_thinking && (isMoonshotModel || isFeatherlessReasoningModel);
+    const supportsThinkingHistory = isMoonshotModel || isGlmModel || isFeatherlessReasoningModel || isZaiAlwaysOnThinking;
+    const preserveMoonshotThinkingHistory = oai_settings.moonshot_preserved_thinking && isMoonshotModel;
+    const preserveGlmThinkingHistory = oai_settings.glm_preserved_thinking && isGlmModel;
     const preserveVeniceReasoning = isVenice && oai_settings.venice_preserved_reasoning;
-    const preserveThinkingHistory = preserveMoonshotThinkingHistory || preserveVeniceReasoning;
+    const preserveThinkingHistory = preserveMoonshotThinkingHistory || preserveGlmThinkingHistory || preserveVeniceReasoning;
     const isProviderThinkingEnabled = supportsThinkingHistory && (
         preserveThinkingHistory
+        || isGlmModel
         || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
         || isZaiAlwaysOnThinking
         || (isFeatherlessReasoningModel && isFeatherlessAlwaysOnThinkingModel(reasoningModel))
@@ -1415,7 +1478,9 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     if (preserveThinkingHistory) {
         let remaining = preserveVeniceReasoning
             ? (oai_settings.venice_preserved_reasoning_all ? Infinity : getVenicePreservedReasoningCount())
-            : (oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount());
+            : preserveGlmThinkingHistory
+                ? (oai_settings.glm_preserved_thinking_all ? Infinity : getGlmPreservedThinkingCount())
+                : (oai_settings.moonshot_preserved_thinking_all ? Infinity : getMoonshotPreservedThinkingCount());
         for (let idx = messages.length - 1; idx >= 0 && remaining > 0; idx--) {
             const candidate = messages[idx];
             if (candidate?.role !== 'assistant') {
@@ -3599,18 +3664,18 @@ function getReasoningEffort(settings = null, model = null) {
                 case reasoning_effort_types.auto:
                     return undefined;
                 case reasoning_effort_types.min:
-                    return settings.show_thoughts ? 'minimal' : 'none';
+                    return settings.show_thoughts || (settings.glm_preserved_thinking && isGlmProviderModel(settings.chat_completion_source, model)) ? 'minimal' : 'none';
                 default:
                     return settings.reasoning_effort;
             }
         }
 
         if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-            if (!settings.show_thoughts || !isMoonshotKimiK3Model(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
+            if (!settings.show_thoughts || !isMoonshotKimiK3OrNewerModel(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
                 return undefined;
             }
 
-            // K3 currently accepts max; pass other known/future values through as Moonshot enables them.
+            // K3+ accepts max; pass other known/future values through as Moonshot enables them.
             return settings.reasoning_effort;
         }
 
@@ -3932,6 +3997,7 @@ export async function createGenerationParameters(settings, model, type, messages
         logit_bias = undefined;
     }
 
+    const preserveGlmReasoning = settings.glm_preserved_thinking && isGlmProviderModel(settings.chat_completion_source, model);
     const generate_data = {
         'type': type,
         'messages': messages,
@@ -3949,7 +4015,7 @@ export async function createGenerationParameters(settings, model, type, messages
         'user_name': name1,
         'char_name': name2,
         'group_names': getGroupNames(),
-        'include_reasoning': Boolean(settings.show_thoughts),
+        'include_reasoning': Boolean(settings.show_thoughts || preserveGlmReasoning),
         'reasoning_effort': getReasoningEffort(settings, model),
         'reasoning_mode': getOpenAIReasoningMode(settings, model),
         'reasoning_summary': settings.chat_completion_source === chat_completion_sources.OPENAI ? settings.openai_reasoning_summary : undefined,
@@ -4452,10 +4518,14 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.moonshot_preserved_thinking = Boolean(settings.moonshot_preserved_thinking);
     }
 
+    if ([chat_completion_sources.ZAI, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS].includes(settings.chat_completion_source)) {
+        generate_data.glm_preserved_thinking = Boolean(settings.glm_preserved_thinking);
+    }
+
     // https://platform.moonshot.ai/docs/api/chat#public-service-address
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
         // Kimi K2.5+ models use fixed sampler values; sending modified values is rejected.
-        if (isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3Model(model)) {
+        if (isMoonshotKimiFixedParameterModel(model) || isMoonshotKimiK3OrNewerModel(model)) {
             delete generate_data.temperature;
             delete generate_data.top_p;
             delete generate_data.frequency_penalty;
@@ -4670,7 +4740,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', reasoningDetails: [], toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {}, anthropicMetadata: null };
+            const state = { reasoning: '', reasoningDetails: [], reasoningSwipes: [], toolReasoning: '', images: [], signature: '', toolSignatures: {}, claudeThinkingBlocks: [], claudeThinkingBlocksInProgress: {}, anthropicMetadata: null };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -4705,7 +4775,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
                 if (canMultiSwipe && Array.isArray(parsed?.choices) && parsed?.choices?.[0]?.index > 0) {
                     const swipeIndex = parsed.choices[0].index - 1;
                     // FIXME: state.reasoning should be an array to support multi-swipe
-                    swipes[swipeIndex] = (swipes[swipeIndex] || '') + getStreamingReply(parsed, state, { overrideShowThoughts: false });
+                    swipes[swipeIndex] = (swipes[swipeIndex] || '') + getStreamingReply(parsed, state, { overrideShowThoughts: false, captureReasoning: false, reasoningSwipeIndex: swipeIndex });
                 } else {
                     text += getStreamingReply(parsed, state);
                 }
@@ -4747,9 +4817,11 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
  * @param {object} [options] Additional options
  * @param {string?} [options.chatCompletionSource] Chat completion source
  * @param {boolean?} [options.overrideShowThoughts] Override show thoughts
+ * @param {boolean} [options.captureReasoning=true] Whether to capture hidden reasoning for replay
+ * @param {number?} [options.reasoningSwipeIndex] Alternate swipe index for reasoning capture
  * @returns {string} The reply extracted from the response data
  */
-export function getStreamingReply(data, state, { chatCompletionSource = null, overrideShowThoughts = null } = {}) {
+export function getStreamingReply(data, state, { chatCompletionSource = null, overrideShowThoughts = null, captureReasoning = true, reasoningSwipeIndex = null } = {}) {
     const chat_completion_source = chatCompletionSource ?? oai_settings.chat_completion_source;
     const show_thoughts = overrideShowThoughts ?? oai_settings.show_thoughts;
 
@@ -4793,13 +4865,19 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         if (Array.isArray(imageUrls) && imageUrls.length > 0) {
             state.images.push(...imageUrls.filter(isDataURL));
         }
+        const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
+            ?? data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
+            ?? data.choices?.filter(x => x?.message?.reasoning)?.[0]?.message?.reasoning
+            ?? data.choices?.filter(x => x?.message?.reasoning_content)?.[0]?.message?.reasoning_content
+            ?? '';
         if (show_thoughts) {
-            state.reasoning +=
-                data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning ??
-                data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content ??
-                data.choices?.filter(x => x?.message?.reasoning)?.[0]?.message?.reasoning ??
-                data.choices?.filter(x => x?.message?.reasoning_content)?.[0]?.message?.reasoning_content ??
-                '';
+            state.reasoning += reasoningDelta;
+        }
+        if (captureReasoning && shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
+            state.toolReasoning += reasoningDelta;
+        }
+        if (Number.isInteger(reasoningSwipeIndex) && shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
+            state.reasoningSwipes[reasoningSwipeIndex] = (state.reasoningSwipes[reasoningSwipeIndex] || '') + reasoningDelta;
         }
         // Extract thought signatures from OpenRouter streaming.
         const reasoningDetails = [
@@ -4845,8 +4923,11 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         if (show_thoughts) {
             state.reasoning += reasoningDelta;
         }
-        if (shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
+        if (captureReasoning && shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
             state.toolReasoning += reasoningDelta;
+        }
+        if (Number.isInteger(reasoningSwipeIndex) && shouldCaptureReasoningForTools(chat_completion_source, getChatCompletionModel())) {
+            state.reasoningSwipes[reasoningSwipeIndex] = (state.reasoningSwipes[reasoningSwipeIndex] || '') + reasoningDelta;
         }
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     } else if (chat_completion_source === chat_completion_sources.MISTRALAI) {
@@ -6130,6 +6211,7 @@ function loadOpenAISettings(data, settings) {
     setContinuePostfixControls();
     setToolReasoningControls();
     setMoonshotPreservedThinkingControls();
+    setGlmPreservedThinkingControls();
     setClaudePreservedThinkingControls();
     setClaudePromptCacheControls();
     setVeniceParameterControls();
@@ -6224,6 +6306,19 @@ function setMoonshotPreservedThinkingControls() {
     $('#moonshot_preserved_thinking_count')
         .val(oai_settings.moonshot_preserved_thinking_count)
         .prop('disabled', !oai_settings.moonshot_preserved_thinking || oai_settings.moonshot_preserved_thinking_all);
+}
+
+function getGlmPreservedThinkingCount(settings = oai_settings) {
+    const count = Math.trunc(Number(settings.glm_preserved_thinking_count));
+    return Number.isFinite(count) && count > 0 ? Math.min(count, 1000) : default_settings.glm_preserved_thinking_count;
+}
+
+function setGlmPreservedThinkingControls() {
+    oai_settings.glm_preserved_thinking_count = getGlmPreservedThinkingCount();
+    $('#glm_preserved_thinking_all').prop('disabled', !oai_settings.glm_preserved_thinking);
+    $('#glm_preserved_thinking_count')
+        .val(oai_settings.glm_preserved_thinking_count)
+        .prop('disabled', !oai_settings.glm_preserved_thinking || oai_settings.glm_preserved_thinking_all);
 }
 
 function getClaudePreservedThinkingCount(settings = oai_settings) {
@@ -9234,6 +9329,33 @@ export function initOpenAI() {
             moonshot_preserved_thinking_count: $(this).val(),
         });
         setMoonshotPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#glm_preserved_thinking').on('input', function () {
+        oai_settings.glm_preserved_thinking = !!$(this).prop('checked');
+        setGlmPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#glm_preserved_thinking_all').on('input', function () {
+        oai_settings.glm_preserved_thinking_all = !!$(this).prop('checked');
+        setGlmPreservedThinkingControls();
+        saveSettingsDebounced();
+    });
+
+    $('#glm_preserved_thinking_count').on('input', function () {
+        const count = Math.trunc(Number($(this).val()));
+        if (Number.isFinite(count) && count > 0) {
+            oai_settings.glm_preserved_thinking_count = Math.min(count, 1000);
+            saveSettingsDebounced();
+        }
+    }).on('change', function () {
+        oai_settings.glm_preserved_thinking_count = getGlmPreservedThinkingCount({
+            ...oai_settings,
+            glm_preserved_thinking_count: $(this).val(),
+        });
+        setGlmPreservedThinkingControls();
         saveSettingsDebounced();
     });
 
