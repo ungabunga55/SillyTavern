@@ -3756,8 +3756,6 @@ function getReasoningEffort(settings = null, model = null) {
                     return undefined;
                 case reasoning_effort_types.min:
                     return 'minimal';
-                case reasoning_effort_types.max:
-                    return reasoning_effort_types.xhigh;
                 default:
                     return settings.reasoning_effort;
             }
@@ -8442,6 +8440,7 @@ export function isImageInliningSupported() {
         'grok-2-vision',
         // Meta Model API
         'muse-spark-1.1',
+        'muse-spark-1.3',
         // Moonshot
         'moonshot-v1-8k-vision-preview',
         'moonshot-v1-32k-vision-preview',
