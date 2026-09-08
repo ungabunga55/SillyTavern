@@ -1863,6 +1863,7 @@ async function sendClaudeRequest(request, response) {
         const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
         const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
         const omittedThinkingDisplayModel = noSamplingModel;
+        const noForcedToolsModel = /^claude-(?:fable|mythos)-5-1(?:$|-)/.test(getClaudeModelId(request.body.model));
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -1891,6 +1892,9 @@ async function sendClaudeRequest(request, response) {
         }
         if (useTools) {
             requestBody.tool_choice = { type: request.body.tool_choice };
+            if (noForcedToolsModel && ['any', 'tool'].includes(requestBody.tool_choice.type)) {
+                requestBody.tool_choice = { type: 'auto' };
+            }
             requestBody.tools = request.body.tools
                 .filter(tool => tool.type === 'function')
                 .map(tool => tool.function)
@@ -1901,15 +1905,24 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Structured output is a forced tool
+        // Fable/Mythos 5.1 require native JSON output instead of a forced tool.
         if (request.body.json_schema) {
-            const jsonTool = {
-                name: request.body.json_schema.name,
-                description: request.body.json_schema.description || 'Well-formed JSON object',
-                input_schema: request.body.json_schema.value,
-            };
-            requestBody.tools = [...(requestBody.tools || []), jsonTool];
-            requestBody.tool_choice = { type: 'tool', name: request.body.json_schema.name };
+            if (noForcedToolsModel) {
+                requestBody.output_config = {
+                    format: {
+                        type: 'json_schema',
+                        schema: request.body.json_schema.value,
+                    },
+                };
+            } else {
+                const jsonTool = {
+                    name: request.body.json_schema.name,
+                    description: request.body.json_schema.description || 'Well-formed JSON object',
+                    input_schema: request.body.json_schema.value,
+                };
+                requestBody.tools = [...(requestBody.tools || []), jsonTool];
+                requestBody.tool_choice = { type: 'tool', name: request.body.json_schema.name };
+            }
         }
 
         if (useWebSearch) {
