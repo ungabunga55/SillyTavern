@@ -142,6 +142,7 @@ const max_128k = 128 * 1000;
 const max_200k = 200 * 1000;
 const max_256k = 256 * 1000;
 const max_400k = 400 * 1000;
+const max_500k = 500 * 1000;
 const max_1mil = 1000 * 1000;
 const max_2mil = 2000 * 1000;
 const unlocked_max = max_2mil;
@@ -306,7 +307,7 @@ const claudeLimitedSamplingModelRegexes = [
  * @returns {boolean} True if reasoning_effort can be sent
  */
 function isXaiReasoningEffortModel(model) {
-    return /^grok-4\.(?:3|5|6)(?:\b|-)/.test(String(model || ''));
+    return /^grok-4\.(?:3|5|6|7)(?:\b|-)/.test(String(model || ''));
 }
 
 /**
@@ -315,7 +316,7 @@ function isXaiReasoningEffortModel(model) {
  * @returns {boolean} True if xhigh can be sent
  */
 function isXaiXHighReasoningEffortModel(model) {
-    return /^grok-4\.(?:5|6)(?:\b|-)/.test(String(model || ''));
+    return /^grok-4\.(?:5|6|7)(?:\b|-)/.test(String(model || ''));
 }
 
 /**
@@ -8017,6 +8018,8 @@ async function onModelChange() {
             $('#openai_max_context').attr('max', max_32k);
         } else if (oai_settings.xai_model.includes('grok-4-fast')) {
             $('#openai_max_context').attr('max', max_2mil);
+        } else if (oai_settings.xai_model.includes('grok-4.7')) {
+            $('#openai_max_context').attr('max', max_500k);
         } else if (oai_settings.xai_model.includes('grok-4')) {
             $('#openai_max_context').attr('max', max_256k);
         } else if (oai_settings.xai_model.includes('grok-code')) {
