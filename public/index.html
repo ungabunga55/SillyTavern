@@ -2301,7 +2301,7 @@
                                                 OpenAI-style options: low, medium, high. Minimum is aliased to low; Extra High and Maximum are aliased to high unless the provider supports them. Auto does not send an effort level.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="openai,azure_openai">
-                                                OpenAI receives Extra High and Maximum exactly as selected; unsupported models may reject them. Minimum sends <code>minimal</code> for GPT-5, <code>none</code> for GPT-5.1, GPT-5.2, and GPT-5.4 through GPT-5.6, and <code>low</code> for GPT-6 Astra. Auto uses the provider default.
+                                                OpenAI receives Extra High and Maximum exactly as selected; unsupported models may reject them. Minimum sends <code>minimal</code> for GPT-5, <code>none</code> for GPT-5.1, GPT-5.2, GPT-5.4 through GPT-5.6, and GPT-6 Sol/Luna, and <code>low</code> for GPT-6 Astra. Auto uses the provider default.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="xai">
                                                 xAI Grok 4.3 supports none, low, medium, and high. Grok 4.5 and 4.6 additionally support extra high; Maximum is sent as extra high. Minimum disables reasoning; Auto uses the provider default.
@@ -3290,6 +3290,8 @@
                                 <select id="model_openai_select">
                                     <optgroup label="GPT-6">
                                         <option value="gpt-6-astra">gpt-6-astra</option>
+                                        <option value="gpt-6-sol">gpt-6-sol</option>
+                                        <option value="gpt-6-luna">gpt-6-luna</option>
                                     </optgroup>
                                     <optgroup label="GPT-5.6">
                                         <option value="gpt-5.6">gpt-5.6</option>

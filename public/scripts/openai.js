@@ -621,6 +621,9 @@ function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
     if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6-astra(?:$|-)/.test(modelId)) {
         return true;
     }
+    if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
+        return reasoningEffort !== 'none';
+    }
     return modelId.startsWith('gpt-5') && Boolean(reasoningEffort) && reasoningEffort !== 'none';
 }
 
@@ -3806,6 +3809,9 @@ function getReasoningEffort(settings = null, model = null) {
                     if (/^gpt-6-astra(?:$|-)/.test(model)) {
                         return reasoning_effort_types.low;
                     }
+                    if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(model)) {
+                        return 'none';
+                    }
                     if (/^gpt-5\.(?:1|2|4|5|6)(?:$|-)/.test(model)) {
                         return 'none';
                     }
@@ -4561,12 +4567,16 @@ export async function createGenerationParameters(settings, model, type, messages
         }
     }
 
-    if (gptSources.includes(settings.chat_completion_source) && /(?:gpt-5|gpt-6-astra(?:$|-))/.test(model)) {
+    if (gptSources.includes(settings.chat_completion_source) && /(?:gpt-5|gpt-6(?:$|-))/.test(model)) {
         generate_data.max_completion_tokens = generate_data.max_tokens;
         delete generate_data.max_tokens;
         delete generate_data.logprobs;
         delete generate_data.top_logprobs;
         if (/gpt-6-astra(?:$|-)/.test(model) && !isNativeResponses) {
+            delete generate_data.tools;
+            delete generate_data.tool_choice;
+        }
+        if (/gpt-6-(?:sol|luna)(?:$|-)/.test(model) && !isNativeResponses && generate_data.reasoning_effort !== 'none') {
             delete generate_data.tools;
             delete generate_data.tool_choice;
         }
@@ -7029,7 +7039,7 @@ function getMaxContextOpenAI(value) {
     /** @type {[RegExp, number][]} */
     const contextMap = [
         [/^gpt-5\.4-(?:mini|nano)(?:$|-)/, max_400k],
-        [/^(?:gpt-5\.[456]|gpt-6-astra)(?:$|-)/, max_1mil],
+        [/^(?:gpt-5\.[456]|gpt-6)(?:$|-)/, max_1mil],
         [/^gpt-5/, max_400k],
         [/gpt-4\.1/, max_1mil],
         [/gpt-audio/, max_128k],
@@ -8403,7 +8413,7 @@ export function isImageInliningSupported() {
         'gpt-4.5-preview',
         'gpt-4o',
         'gpt-5',
-        'gpt-6-astra',
+        'gpt-6',
         'o1',
         'o3',
         'o4-mini',

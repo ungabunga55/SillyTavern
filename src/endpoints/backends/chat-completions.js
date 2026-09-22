@@ -407,6 +407,10 @@ function getOpenAIReasoningEffort(model, effort) {
         return 'low';
     }
 
+    if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
+        return 'none';
+    }
+
     if (/^gpt-5\.(?:1|2|4|5|6)(?:$|-)/.test(modelId)) {
         return 'none';
     }
@@ -451,6 +455,9 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
     }
     if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6-astra(?:$|-)/.test(modelId)) {
         return true;
+    }
+    if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
+        return effort !== 'none';
     }
     return modelId.startsWith('gpt-5') && Boolean(effort) && effort !== 'none';
 }
@@ -3356,7 +3363,9 @@ async function sendAzureOpenAIRequest(request, response) {
     // Do not send reasoning effort to models which do not support it
     apiRequestBody['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
 
-    if (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())) {
+    // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
+    if (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+        || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase()) && apiRequestBody['reasoning_effort'] !== 'none')) {
         delete apiRequestBody.tools;
         delete apiRequestBody.tool_choice;
     }
@@ -4638,9 +4647,12 @@ router.post('/generate', async function (request, response) {
             };
         }
 
+        // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI
             && !useOpenAIResponsesApi
-            && /^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())) {
+            && (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+                || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+                    && String(requestBody?.reasoning_effort ?? bodyParams?.reasoning_effort ?? request.body.reasoning_effort ?? '').toLowerCase() !== 'none'))) {
             delete requestBody.tools;
             delete requestBody.tool_choice;
         }
