@@ -34,8 +34,8 @@ const GEMINI_MEDIA_RESOLUTION = {
 
 const enableThoughtSignatures = !!getConfigValue('gemini.thoughtSignatures', true, 'boolean');
 
-const CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX = /^claude-(?:fable-5|mythos-5|opus-4-8|opus-5)(?:$|-)/;
-const CLAUDE_DEFAULT_ADAPTIVE_THINKING_MODEL_REGEX = /^claude-opus-5(?:$|-)/;
+const CLAUDE_MID_CONVERSATION_SYSTEM_MODEL_REGEX = /^claude-(?:fable-5|mythos-5|opus-4-8|opus-5|opus-5-5)(?:$|-)/;
+const CLAUDE_DEFAULT_ADAPTIVE_THINKING_MODEL_REGEX = /^claude-opus-5(?:$|-)(?!5(?:$|-))/;
 
 /**
  * @typedef {object} PromptNames

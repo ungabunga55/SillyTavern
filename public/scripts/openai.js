@@ -4092,7 +4092,7 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.CLAUDE) {
-        const disableThinking = Boolean(settings.claude_disable_thinking) && /^claude-opus-5(?:$|-)/.test(getClaudeModelId(model));
+        const disableThinking = Boolean(settings.claude_disable_thinking) && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getClaudeModelId(model));
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.use_sysprompt = settings.use_sysprompt;
         generate_data.claude_disable_thinking = disableThinking;
@@ -6281,7 +6281,7 @@ function setContinuePostfixControls() {
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
     const isOpenAIResponses = oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
-    const isClaudeOpus5 = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && /^claude-opus-5(?:$|-)/.test(getClaudeModelId(oai_settings.claude_model));
+    const isClaudeOpus5 = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getClaudeModelId(oai_settings.claude_model));
     const supportsReasoningMode = isOpenAIResponses && isOpenAIReasoningModeModel(getChatCompletionModel(oai_settings));
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
@@ -7814,7 +7814,7 @@ async function onModelChange() {
     if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
-        } else if (/^claude-(sonnet-4-5|sonnet-4-6|sonnet-5|opus-4-6|opus-4-7|opus-4-8|opus-5|fable-5|mythos-5)/.test(value)) {
+        } else if (/^claude-(sonnet-4-5|sonnet-4-6|sonnet-5|opus-4-6|opus-4-7|opus-4-8|opus-5|opus-5-5|fable-5|mythos-5)/.test(value)) {
             $('#openai_max_context').attr('max', max_1mil);
         } else if (/^claude-(3|opus|haiku|sonnet)/.test(value)) {
             $('#openai_max_context').attr('max', max_200k);
@@ -8411,6 +8411,7 @@ export function isImageInliningSupported() {
         'claude-3',
         'claude-opus-4',
         'claude-opus-5',
+        'claude-opus-5-5',
         'claude-sonnet-4',
         'claude-sonnet-5',
         'claude-haiku-4',

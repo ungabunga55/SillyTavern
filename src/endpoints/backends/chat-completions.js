@@ -384,7 +384,7 @@ function isClaudeVerbosityModel(model) {
  * @returns {boolean} True if adaptive thinking is forced on
  */
 function isClaudeForcedAdaptiveThinkingModel(model) {
-    return /^claude-(?:fable-5|mythos-5|mythos-preview)(?:$|-)/.test(getClaudeModelId(model));
+    return /^claude-(?:fable-5|mythos-5|mythos-preview|opus-5-5)(?:$|-)/.test(getClaudeModelId(model));
 }
 
 /**
@@ -1863,7 +1863,7 @@ async function sendClaudeRequest(request, response) {
         const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
         const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
         const omittedThinkingDisplayModel = noSamplingModel;
-        const noForcedToolsModel = /^claude-(?:fable|mythos)-5-1(?:$|-)/.test(getClaudeModelId(request.body.model));
+        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5)(?:$|-)/.test(getClaudeModelId(request.body.model));
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
