@@ -1835,6 +1835,40 @@ function setJsonObjectFormat(bodyParams, messages, jsonSchema) {
 }
 
 /**
+ * Prepares a JSON schema for Claude strict tool use, which requires
+ * `additionalProperties: false` on every object schema.
+ * @param {any} schema JSON schema
+ * @returns {any} Strict-compatible schema copy
+ */
+function toClaudeStrictSchema(schema) {
+    const visit = (node) => {
+        if (Array.isArray(node)) {
+            return node.map(visit);
+        }
+        if (!node || typeof node !== 'object') {
+            return node;
+        }
+        const result = {};
+        for (const [key, value] of Object.entries(node)) {
+            const isSchemaMap = ['properties', '$defs', 'definitions', 'patternProperties'].includes(key) && value && typeof value === 'object' && !Array.isArray(value);
+            const isLiteral = ['enum', 'const', 'default', 'examples'].includes(key);
+            result[key] = isLiteral ? value : isSchemaMap
+                ? Object.fromEntries(Object.entries(value).map(([name, subschema]) => [name, visit(subschema)]))
+                : visit(value);
+        }
+        const types = Array.isArray(result.type) ? result.type : [result.type];
+        if (types.includes('object') || (result.type === undefined && result.properties && typeof result.properties === 'object')) {
+            result.additionalProperties = false;
+        }
+        return result;
+    };
+    const strictSchema = visit(schema);
+    return strictSchema && typeof strictSchema === 'object' && !Array.isArray(strictSchema)
+        ? strictSchema
+        : { type: 'object', properties: {}, additionalProperties: false };
+}
+
+/**
  * Sends a request to Claude API.
  * @param {express.Request} request Express request
  * @param {express.Response} response Express response
@@ -1912,15 +1946,18 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Fable/Mythos 5.1 require native JSON output instead of a forced tool.
+        // Structured output is a forced tool on older models. Fable/Mythos 5.1 and Opus 5.5
+        // reject forced tool_choice and output_config.format, so use a strict tool with auto choice.
         if (request.body.json_schema) {
             if (noForcedToolsModel) {
-                requestBody.output_config = {
-                    format: {
-                        type: 'json_schema',
-                        schema: request.body.json_schema.value,
-                    },
+                const jsonTool = {
+                    name: request.body.json_schema.name,
+                    description: `${request.body.json_schema.description || 'Well-formed JSON object'}. Always respond by calling this tool with the complete result; do not answer in plain text.`,
+                    strict: true,
+                    input_schema: toClaudeStrictSchema(request.body.json_schema.value),
                 };
+                requestBody.tools = [...(requestBody.tools || []), jsonTool];
+                requestBody.tool_choice = { type: 'auto' };
             } else {
                 const jsonTool = {
                     name: request.body.json_schema.name,
