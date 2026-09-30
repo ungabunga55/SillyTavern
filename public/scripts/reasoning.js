@@ -5,7 +5,7 @@ import { chat, closeMessageEditor, event_types, eventSource, main_api, messageFo
 import { getRegexedString, regex_placement } from './extensions/regex/engine.js';
 import { getCurrentLocale, t, translate } from './i18n.js';
 import { macros, MacroCategory } from './macros/macro-system.js';
-import { chat_completion_sources, getChatCompletionModel, oai_settings } from './openai.js';
+import { chat_completion_sources, getChatCompletionModel, isClaudeWire, oai_settings } from './openai.js';
 import { Popup } from './popup.js';
 import { performFuzzySearch, power_user } from './power-user.js';
 import { getPresetManager } from './preset-manager.js';
@@ -121,7 +121,7 @@ export function extractReasoningFromData(data, {
                     .join('\n\n');
             }
 
-            switch (chatCompletionSource ?? oai_settings.chat_completion_source) {
+            switch (isClaudeWire(chatCompletionSource ?? oai_settings.chat_completion_source) ? chat_completion_sources.CLAUDE : (chatCompletionSource ?? oai_settings.chat_completion_source)) {
                 case chat_completion_sources.DEEPSEEK:
                     return data?.choices?.[0]?.message?.reasoning_content ?? '';
                 case chat_completion_sources.XAI:
@@ -160,6 +160,7 @@ export function extractReasoningFromData(data, {
                 case chat_completion_sources.ZAI:
                 case chat_completion_sources.ATLASCLOUD:
                 case chat_completion_sources.FEATHERLESS:
+                case chat_completion_sources.SURPLUS:
                 case chat_completion_sources.WORKERS_AI:
                 case chat_completion_sources.CUSTOM: {
                     return data?.choices?.[0]?.message?.reasoning_content
@@ -186,7 +187,7 @@ export function extractClaudeThinkingBlocks(data, {
     mainApi = null,
     chatCompletionSource = null,
 } = {}) {
-    if ((mainApi ?? main_api) !== 'openai' || (chatCompletionSource ?? oai_settings.chat_completion_source) !== chat_completion_sources.CLAUDE) {
+    if ((mainApi ?? main_api) !== 'openai' || !isClaudeWire(chatCompletionSource ?? oai_settings.chat_completion_source)) {
         return [];
     }
 

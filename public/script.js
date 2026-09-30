@@ -108,6 +108,7 @@ import {
     chat_completion_sources,
     getChatCompletionModel,
     isGlmProviderModel,
+    isClaudeWire,
     shouldCaptureReasoningForTools,
     proxies,
     loadProxyPresets,
@@ -6643,7 +6644,7 @@ export function extractJsonFromData(data, { mainApi = null, chatCompletionSource
     switch (mainApi) {
         case 'openai': {
             const text = extractMessageFromData(data, mainApi);
-            switch (chatCompletionSource) {
+            switch (isClaudeWire(chatCompletionSource) ? chat_completion_sources.CLAUDE : chatCompletionSource) {
                 case chat_completion_sources.CLAUDE:
                     result = text ? tryParse(text) : undefined;
                     if (result === undefined) {

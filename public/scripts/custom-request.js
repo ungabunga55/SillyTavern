@@ -517,6 +517,7 @@ export class ChatCompletionService {
 
                 const reply = getStreamingReply(parsed, state, {
                     chatCompletionSource: data.chat_completion_source,
+                    model: data.model,
                     overrideShowThoughts: true,
                 });
                 if (Array.isArray(parsed?.choices) && parsed?.choices?.[0]?.index > 0) {

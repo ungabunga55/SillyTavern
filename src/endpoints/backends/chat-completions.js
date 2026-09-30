@@ -139,6 +139,8 @@ const API_ZAI_CODING = 'https://api.z.ai/api/coding/paas/v4';
 const API_SILICONFLOW = 'https://api.siliconflow.com/v1';
 const API_SILICONFLOW_CN = 'https://api.siliconflow.cn/v1';
 const API_ATLASCLOUD = 'https://api.atlascloud.ai/v1';
+const API_SURPLUS = 'https://api.surplusintelligence.ai/v1';
+const API_SURPLUS_ANTHROPIC = 'https://api.surplusintelligence.ai/anthropic/v1';
 const API_MINIMAX = 'https://api.minimax.io/v1';
 const API_MINIMAX_CN = 'https://api.minimaxi.com/v1';
 const API_OPENROUTER = 'https://openrouter.ai/api/v1';
@@ -691,6 +693,395 @@ function getAtlascloudModelFamily(modelId) {
     if (modelId.startsWith('qwen/')) return 'qwen';
     if (modelId.startsWith('bytedance/')) return 'doubao';
     return 'generic';
+}
+
+/**
+ * Splits a Surplus Intelligence model id into the forms used by the direct provider integrations.
+ * Surplus ids use dots for versions (claude-opus-5.5) and may carry a `:web` variant suffix.
+ * @param {string} model Surplus Intelligence model id
+ * @returns {{nativeModel: string, claudeModel: string}} Lower-cased id without variant suffix, and the dash-versioned Claude id
+ */
+function getSurplusModelParts(model) {
+    const nativeModel = String(model || '').toLowerCase().trim().replace(/:[a-z0-9_-]+$/, '');
+    return { nativeModel, claudeModel: nativeModel.replace(/(\d)\.(\d)/g, '$1-$2') };
+}
+
+/**
+ * Gets the direct provider family that a Surplus Intelligence model is forwarded to.
+ * @param {string} nativeModel Lower-cased model id without variant suffix
+ * @returns {string} Provider family name
+ */
+function getSurplusModelFamily(nativeModel) {
+    if (/^claude[-.]/.test(nativeModel)) return 'claude';
+    if (/^(?:gpt-(?!oss|image)|o[134](?:$|-)|chatgpt-)/.test(nativeModel)) return 'openai';
+    if (/^(?:gemini|gemma)-/.test(nativeModel)) return 'google';
+    if (/^grok-/.test(nativeModel)) return 'xai';
+    if (/^glm-/.test(nativeModel)) return 'zai';
+    if (/^kimi-/.test(nativeModel)) return 'moonshot';
+    if (/^deepseek-/.test(nativeModel)) return 'deepseek';
+    if (/^minimax-/.test(nativeModel)) return 'minimax';
+    if (/^(?:mistral|ministral|magistral|devstral|codestral)-/.test(nativeModel)) return 'mistral';
+    if (/^qwen/.test(nativeModel)) return 'qwen';
+    return 'generic';
+}
+
+/**
+ * Gets the Surplus Intelligence routing headers for a request.
+ * @param {Record<string, any>} body Request body from the client
+ * @returns {Record<string, string>} Extra request headers
+ */
+function getSurplusRoutingHeaders(body) {
+    const discount = Number(body?.surplus_min_discount);
+    if (body?.surplus_min_discount === undefined || body?.surplus_min_discount === null || body?.surplus_min_discount === '' || !Number.isInteger(discount) || discount < 0 || discount > 100) {
+        return {};
+    }
+
+    return { 'X-Min-Discount': String(discount) };
+}
+
+/**
+ * Checks whether a Surplus Intelligence catalog row is a text chat model.
+ * Media generation, speech-to-text, embedding and decision models share the catalog,
+ * and E2EE models need client-side encryption that a Bearer-auth request cannot provide.
+ * @param {Record<string, any>} model Catalog row
+ * @returns {boolean} True if the model can be used for chat completions
+ */
+function isSurplusChatModel(model) {
+    const id = String(model?.id || '');
+    if (!id || /^e2ee-/i.test(id)) {
+        return false;
+    }
+
+    const input = model?.architecture?.input_modalities;
+    const output = model?.architecture?.output_modalities;
+    if (Array.isArray(input) && Array.isArray(output)) {
+        return input.includes('text') && output.includes('text');
+    }
+
+    return !/->/.test(String(model?.architecture?.modality || '')) || /->text$/.test(String(model?.architecture?.modality || ''));
+}
+
+/**
+ * Maps the SillyTavern reasoning effort to the generic OpenAI-style values.
+ * @param {string} effort SillyTavern reasoning effort
+ * @returns {string|undefined} low, medium, high, or undefined for auto
+ */
+function getSurplusGenericReasoningEffort(effort) {
+    switch (effort) {
+        case 'min':
+        case 'low':
+            return 'low';
+        case 'medium':
+            return 'medium';
+        case 'high':
+        case 'xhigh':
+        case 'max':
+            return 'high';
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * Applies the request rules of the direct provider that serves a Surplus Intelligence model on its
+ * OpenAI-compatible endpoint. Surplus Intelligence forwards requests to the original provider APIs, so the
+ * same sampler restrictions, thinking shapes and tool limits as the native integrations apply.
+ * Claude models don't come through here: they use the Anthropic Messages endpoint (see sendClaudeRequest).
+ * @param {Record<string, any>} requestBody Request payload to mutate
+ * @param {express.Request} request Express request
+ */
+function sanitizeSurplusRequestBody(requestBody, request) {
+    const body = request.body;
+    const { nativeModel } = getSurplusModelParts(body.model);
+    const family = getSurplusModelFamily(nativeModel);
+    const includeReasoning = Boolean(body.include_reasoning);
+    const effort = String(body.reasoning_effort || 'auto');
+    const hasEffort = effort !== 'auto';
+    const messages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+    const hasTools = () => Array.isArray(requestBody.tools) && requestBody.tools.length > 0;
+    const isForcedToolChoice = () => requestBody.tool_choice === 'required' || (requestBody.tool_choice && typeof requestBody.tool_choice === 'object');
+    const dropTools = () => {
+        delete requestBody.tools;
+        delete requestBody.tool_choice;
+        delete requestBody.parallel_tool_calls;
+    };
+    const setJsonSchemaFallback = () => {
+        if (!body.json_schema) return;
+        requestBody.response_format = { type: 'json_object' };
+        messages.push({ role: 'user', content: `JSON schema for the response:\n${JSON.stringify(body.json_schema.value, null, 4)}` });
+    };
+
+    // Non-standard samplers are only meaningful for open-weight model families.
+    const topK = Number(body.top_k);
+    const minP = Number(body.min_p);
+    const repetitionPenalty = Number(body.repetition_penalty);
+    delete requestBody.top_k;
+    if (['mistral', 'qwen', 'generic'].includes(family)) {
+        if (topK > 0) requestBody.top_k = topK;
+        if (minP > 0) requestBody.min_p = minP;
+        if (Number.isFinite(repetitionPenalty) && repetitionPenalty > 0 && repetitionPenalty !== 1) requestBody.repetition_penalty = repetitionPenalty;
+    }
+
+    // SillyTavern's internal reasoning field is only replayed to families that define a reasoning history format.
+    if (!['moonshot', 'zai'].includes(family)) {
+        for (const message of messages) {
+            delete message.reasoning;
+        }
+    }
+
+    // Image detail is an OpenAI-family field; other providers reject or ignore it.
+    if (!['openai', 'google', 'xai'].includes(family)) {
+        for (const message of messages) {
+            if (!Array.isArray(message.content)) continue;
+            for (const part of message.content) {
+                if (part?.type === 'image_url' && part.image_url && typeof part.image_url === 'object') {
+                    delete part.image_url.detail;
+                }
+            }
+        }
+    }
+
+    if (family === 'openai') {
+        const baseModel = nativeModel.replace(/-(?:pro|codex)$/, '');
+        const isReasoningEffortModel = OPENAI_REASONING_EFFORT_MODELS.includes(baseModel);
+        let reasoningEffort;
+        if (hasEffort && isReasoningEffortModel) {
+            reasoningEffort = effort === 'min' && /^gpt-6\.1-sol(?:$|-)/.test(baseModel)
+                ? 'none'
+                : getOpenAIReasoningEffort(baseModel, effort);
+        }
+
+        if (reasoningEffort) {
+            requestBody.reasoning_effort = reasoningEffort;
+        } else {
+            delete requestBody.reasoning_effort;
+        }
+
+        if (body.verbosity && OPENAI_VERBOSITY_MODELS.test(nativeModel)) {
+            requestBody.verbosity = body.verbosity;
+        }
+
+        const isOSeries = /^o[134](?:$|-)/.test(nativeModel);
+        const isGpt5Or6 = /^(?:gpt-5|gpt-6(?:\.\d+)?(?:$|-))/.test(nativeModel);
+        if (isOSeries || isGpt5Or6) {
+            requestBody.max_completion_tokens = requestBody.max_completion_tokens ?? requestBody.max_tokens;
+            delete requestBody.max_tokens;
+            delete requestBody.logprobs;
+            delete requestBody.top_logprobs;
+        }
+
+        if (isOSeries) {
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+            delete requestBody.frequency_penalty;
+            delete requestBody.presence_penalty;
+            delete requestBody.logit_bias;
+            delete requestBody.stop;
+            if (nativeModel === 'o1') {
+                for (const message of messages) {
+                    if (message.role === 'system') message.role = 'user';
+                }
+                dropTools();
+            }
+        } else if (isGpt5Or6) {
+            if (/^gpt-5-chat/.test(nativeModel)) {
+                dropTools();
+            } else if (/^gpt-5\.[1-4](?:$|-)/.test(nativeModel) && !/chat-latest/.test(nativeModel) && !reasoningEffort) {
+                delete requestBody.frequency_penalty;
+                delete requestBody.presence_penalty;
+                delete requestBody.logit_bias;
+                delete requestBody.stop;
+            } else {
+                delete requestBody.temperature;
+                delete requestBody.top_p;
+                delete requestBody.frequency_penalty;
+                delete requestBody.presence_penalty;
+                delete requestBody.logit_bias;
+                delete requestBody.stop;
+            }
+
+            // Chat Completions tools: Astra never supports them; Sol/Luna only with reasoning_effort none.
+            if (/^gpt-6-astra(?:$|-)/.test(nativeModel)
+                || (/^gpt-6(?:\.1)?-(?:sol|luna)(?:$|-)/.test(nativeModel) && reasoningEffort !== 'none')) {
+                dropTools();
+            }
+        }
+
+        return;
+    }
+
+    if (family === 'google') {
+        delete requestBody.seed;
+        delete requestBody.logit_bias;
+        // Some catalog ids write versions with dashes (gemini-3-6-flash).
+        if (isGeminiNoSamplingModel(nativeModel.replace(/^(gemini-\d+)-(\d)(?=-)/, '$1.$2'))) {
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+        }
+        const reasoningEffort = getSurplusGenericReasoningEffort(effort);
+        if (reasoningEffort) requestBody.reasoning_effort = reasoningEffort;
+        return;
+    }
+
+    if (family === 'xai') {
+        const reasoningEffortModel = /^grok-4\.(?:3|5|6|7)(?:\b|-)/.test(nativeModel);
+        const xhighModel = /^grok-4\.(?:5|6|7)(?:\b|-)/.test(nativeModel);
+        const isNonReasoning = /^grok-4-fast-non-reasoning(?:\b|-)/.test(nativeModel);
+        const isReasoning = (/^grok-4(?:\b|-|\.)/.test(nativeModel) && !isNonReasoning) || /(?:^|-)grok-3-mini(?:\b|-)/.test(nativeModel) || /^grok-code(?:\b|-)/.test(nativeModel);
+        const grok420OrNewer = Number(nativeModel.match(/^grok-4\.(\d+)/)?.[1]) >= 20;
+
+        requestBody.max_completion_tokens = requestBody.max_completion_tokens ?? requestBody.max_tokens;
+        delete requestBody.max_tokens;
+        requestBody.top_p = requestBody.top_p || Number.EPSILON;
+
+        if (reasoningEffortModel && hasEffort) {
+            const xaiEffort = effort === 'min' ? 'none' : (['xhigh', 'max'].includes(effort) ? (xhighModel ? 'xhigh' : 'high') : effort);
+            if (XAI_REASONING_EFFORTS.has(xaiEffort)) requestBody.reasoning_effort = xaiEffort;
+        } else {
+            delete requestBody.reasoning_effort;
+        }
+
+        if (isReasoning) {
+            delete requestBody.presence_penalty;
+            delete requestBody.frequency_penalty;
+            delete requestBody.stop;
+        }
+        if (grok420OrNewer) {
+            delete requestBody.logprobs;
+            delete requestBody.top_logprobs;
+        }
+        return;
+    }
+
+    if (family === 'moonshot') {
+        const alwaysOn = isMoonshotKimiAlwaysOnThinkingModel(nativeModel);
+        const isK3OrNewer = isMoonshotKimiK3OrNewerModel(nativeModel);
+        const thinkingPrefill = Boolean(body.moonshot_thinking_prefill);
+        const preservedThinking = Boolean(body.moonshot_preserved_thinking);
+        const thinkingEnabled = alwaysOn || includeReasoning || thinkingPrefill || preservedThinking;
+
+        delete requestBody.seed;
+        delete requestBody.logit_bias;
+        delete requestBody.reasoning_effort;
+
+        // Kimi K2.5+ and K3 use fixed sampler values; modified values are rejected.
+        if (isMoonshotKimiFixedParameterModel(nativeModel) || isK3OrNewer) {
+            delete requestBody.temperature;
+            delete requestBody.top_p;
+            delete requestBody.presence_penalty;
+            delete requestBody.frequency_penalty;
+        }
+
+        if (isK3OrNewer) {
+            // K3 reasons by default; thinking is controlled by reasoning_effort only.
+            if (thinkingEnabled && hasEffort) requestBody.reasoning_effort = effort;
+        } else {
+            requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
+        }
+
+        normalizeReasoningContent(messages, thinkingEnabled, preservedThinking);
+
+        if (body.json_schema) {
+            setJsonSchemaFallback();
+        } else if (thinkingPrefill) {
+            extractMoonshotThinkingPrefill(messages);
+            addAssistantPrefix(messages, [], 'partial', true);
+        }
+
+        // Thinking mode only accepts auto/none tool choices.
+        if (thinkingEnabled && hasTools() && isForcedToolChoice()) {
+            requestBody.tool_choice = 'auto';
+        }
+        return;
+    }
+
+    if (family === 'zai') {
+        const alwaysOn = /^glm-5\.3(?:-flash)?$/.test(nativeModel);
+        const supportsEffort = /^glm-5\.[23](?:-flash)?$/.test(nativeModel);
+        const preservedThinking = Boolean(body.glm_preserved_thinking) && isGlmPreservedThinkingModel(nativeModel);
+        const thinkingEnabled = alwaysOn || includeReasoning || preservedThinking;
+
+        delete requestBody.seed;
+        delete requestBody.logit_bias;
+        delete requestBody.reasoning_effort;
+        delete requestBody.presence_penalty;
+        delete requestBody.frequency_penalty;
+
+        requestBody.top_p = requestBody.top_p || 0.01;
+        if (Array.isArray(requestBody.stop) && requestBody.stop.length > 0) {
+            requestBody.stop = requestBody.stop.slice(0, 1);
+        } else {
+            delete requestBody.stop;
+        }
+
+        requestBody.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
+        if (preservedThinking) {
+            requestBody.thinking.clear_thinking = false;
+        }
+        if (supportsEffort && (includeReasoning || alwaysOn) && hasEffort) {
+            requestBody.reasoning_effort = effort === 'min' ? (alwaysOn ? 'low' : 'minimal') : effort;
+        }
+        if (alwaysOn && requestBody.stream && hasTools()) {
+            requestBody.tool_stream = true;
+        }
+
+        normalizeReasoningContent(messages, thinkingEnabled, preservedThinking);
+
+        if (thinkingEnabled && hasTools() && isForcedToolChoice()) {
+            requestBody.tool_choice = 'auto';
+        }
+        setJsonSchemaFallback();
+        return;
+    }
+
+    if (family === 'deepseek') {
+        delete requestBody.seed;
+        delete requestBody.logit_bias;
+        delete requestBody.reasoning_effort;
+        requestBody.top_p = requestBody.top_p || Number.EPSILON;
+
+        const supportsThinking = /^deepseek-v(?:3\.[12]|4)/.test(nativeModel);
+        if (supportsThinking) {
+            requestBody.thinking = { type: includeReasoning ? 'enabled' : 'disabled' };
+            if (includeReasoning && hasEffort) {
+                requestBody.reasoning_effort = ['min', 'low'].includes(effort) ? 'low' : (['xhigh', 'max'].includes(effort) ? 'max' : 'high');
+            }
+            if (includeReasoning) {
+                addReasoningContentToToolCalls(messages);
+            }
+        }
+
+        if (hasTools()) {
+            // DeepSeek doesn't permit empty required arrays.
+            for (const tool of requestBody.tools) {
+                const required = tool?.function?.parameters?.required;
+                if (Array.isArray(required) && required.length === 0) {
+                    delete tool.function.parameters.required;
+                }
+            }
+        }
+        setJsonSchemaFallback();
+        return;
+    }
+
+    if (family === 'minimax') {
+        delete requestBody.reasoning_effort;
+        if (Number.isFinite(Number(requestBody.temperature))) {
+            requestBody.temperature = Math.min(Math.max(Number(requestBody.temperature), Number.EPSILON), 1.0);
+        }
+        return;
+    }
+
+    if (family === 'mistral') {
+        requestBody.top_p = Math.max(Number(requestBody.top_p) || 0, Number.EPSILON);
+    }
+
+    const reasoningEffort = getSurplusGenericReasoningEffort(effort);
+    if (reasoningEffort) {
+        requestBody.reasoning_effort = reasoningEffort;
+    } else {
+        delete requestBody.reasoning_effort;
+    }
 }
 
 /**
@@ -1874,8 +2265,14 @@ function toClaudeStrictSchema(schema) {
  * @param {express.Response} response Express response
  */
 async function sendClaudeRequest(request, response) {
-    const apiUrl = new URL(request.body.reverse_proxy || API_CLAUDE).toString();
-    const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.CLAUDE, request.body.secret_id);
+    // Surplus Intelligence serves Claude models through its Anthropic Messages endpoint with the same request format.
+    const isSurplus = request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SURPLUS;
+    const apiUrl = isSurplus ? API_SURPLUS_ANTHROPIC : new URL(request.body.reverse_proxy || API_CLAUDE).toString();
+    const apiKey = isSurplus
+        ? readSecret(request.user.directories, SECRET_KEYS.SURPLUS, request.body.secret_id)
+        : request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.CLAUDE, request.body.secret_id);
+    // Capability checks use the dashed Claude id (claude-opus-5.5 -> claude-opus-5-5); the request keeps the catalog id.
+    const claudeModel = isSurplus ? getSurplusModelParts(request.body.model).claudeModel : request.body.model;
     const divider = '-'.repeat(process.stdout.columns);
 
     if (!apiKey) {
@@ -1889,22 +2286,22 @@ async function sendClaudeRequest(request, response) {
         request.socket.on('close', function () {
             controller.abort();
         });
-        const additionalHeaders = {};
+        const additionalHeaders = isSurplus ? getSurplusRoutingHeaders(request.body) : {};
         const betaHeaders = [];
         const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.use_sysprompt);
         const promptCache = getClaudePromptCacheSettings(request.body);
-        const useMidConversationSystemMessages = supportsClaudeMidConversationSystemMessages(request.body.model);
+        const useMidConversationSystemMessages = supportsClaudeMidConversationSystemMessages(claudeModel);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request), useMidConversationSystemMessages);
-        const useThinking = isClaudeThinkingModel(request.body.model);
-        const useWebSearch = /^claude-(3-5|3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(request.body.model) && Boolean(request.body.enable_web_search);
-        const isLimitedSampling = isClaudeLimitedSamplingModel(request.body.model);
-        const useVerbosity = isClaudeVerbosityModel(request.body.model);
-        const isAdaptiveModel = isClaudeAdaptiveThinkingModel(request.body.model, enableAdaptiveThinking);
-        const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
-        const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
+        const useThinking = isClaudeThinkingModel(claudeModel);
+        const useWebSearch = /^claude-(3-5|3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(claudeModel) && Boolean(request.body.enable_web_search);
+        const isLimitedSampling = isClaudeLimitedSamplingModel(claudeModel);
+        const useVerbosity = isClaudeVerbosityModel(claudeModel);
+        const isAdaptiveModel = isClaudeAdaptiveThinkingModel(claudeModel, enableAdaptiveThinking);
+        const noSamplingModel = isClaudeNoSamplingModel(claudeModel);
+        const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(claudeModel);
         const omittedThinkingDisplayModel = noSamplingModel;
-        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(request.body.model));
+        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(claudeModel));
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -2004,7 +2401,7 @@ async function sendClaudeRequest(request, response) {
 
         const reasoningEffort = request.body.reasoning_effort;
         const includeReasoning = Boolean(request.body.include_reasoning);
-        const disableThinking = shouldDisableClaudeThinking(request.body.model, request.body.claude_disable_thinking);
+        const disableThinking = shouldDisableClaudeThinking(claudeModel, request.body.claude_disable_thinking);
         const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream, isAdaptiveModel);
 
         // Adaptive thinking: returns a string effort level (like Gemini 3)
@@ -2079,7 +2476,9 @@ async function sendClaudeRequest(request, response) {
             if (!generateResponse.ok) {
                 const generateResponseText = await generateResponse.text();
                 console.warn(color.red(`Claude API returned error: ${generateResponse.status} ${generateResponse.statusText}\n${generateResponseText}\n${divider}`));
-                return response.status(500).send({ error: true });
+                return isSurplus
+                    ? response.status(500).send({ error: { message: tryParse(generateResponseText)?.error?.message || generateResponseText } })
+                    : response.status(500).send({ error: true });
             }
 
             /** @type {any} */
@@ -3694,6 +4093,10 @@ router.post('/status', async function (request, statusResponse) {
             apiUrl = API_ATLASCLOUD;
             apiKey = readSecret(request.user.directories, SECRET_KEYS.ATLASCLOUD, request.body.secret_id);
             headers = {};
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SURPLUS) {
+            apiUrl = API_SURPLUS;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.SURPLUS, request.body.secret_id);
+            headers = {};
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MINIMAX) {
             const defaultApiUrl = request.body.minimax_endpoint === MINIMAX_ENDPOINT.CN
                 ? API_MINIMAX_CN : API_MINIMAX;
@@ -3807,6 +4210,10 @@ router.post('/status', async function (request, statusResponse) {
                     console.warn('Unable to load Venice model traits:', error.message || error);
                 }
                 data = { ...data, data: normalizeVeniceModels(data, traits) };
+            }
+
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SURPLUS && Array.isArray(data?.data)) {
+                data.data = data.data.filter(isSurplusChatModel);
             }
 
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.CHUTES && Array.isArray(data?.data)) {
@@ -3978,6 +4385,11 @@ router.post('/generate', async function (request, response) {
 
         switch (request.body.chat_completion_source) {
             case CHAT_COMPLETION_SOURCES.CLAUDE: return await sendClaudeRequest(request, response);
+            case CHAT_COMPLETION_SOURCES.SURPLUS:
+                if (getSurplusModelFamily(getSurplusModelParts(request.body.model).nativeModel) === 'claude') {
+                    return await sendClaudeRequest(request, response);
+                }
+                break;
             case CHAT_COMPLETION_SOURCES.AI21: return await sendAI21Request(request, response);
             case CHAT_COMPLETION_SOURCES.MAKERSUITE: return await sendMakerSuiteRequest(request, response);
             case CHAT_COMPLETION_SOURCES.VERTEXAI: return await sendMakerSuiteRequest(request, response);
@@ -4558,6 +4970,11 @@ router.post('/generate', async function (request, response) {
                 top_k: request.body.top_k,
                 repetition_penalty: request.body.repetition_penalty,
             };
+        } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SURPLUS) {
+            apiUrl = API_SURPLUS;
+            apiKey = readSecret(request.user.directories, SECRET_KEYS.SURPLUS, request.body.secret_id);
+            headers = getSurplusRoutingHeaders(request.body);
+            bodyParams = {};
         } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.WORKERS_AI) {
             apiKey = readSecret(request.user.directories, SECRET_KEYS.WORKERS_AI, request.body.secret_id);
             const accountId = String(request.body.workers_ai_account_id || '').trim();
@@ -4710,6 +5127,10 @@ router.post('/generate', async function (request, response) {
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ATLASCLOUD) {
             sanitizeAtlascloudRequestBody(requestBody, request);
+        }
+
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SURPLUS) {
+            sanitizeSurplusRequestBody(requestBody, request);
         }
 
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {

@@ -217,6 +217,7 @@ export const chat_completion_sources = {
     MINIMAX: 'minimax',
     REQUESTY: 'requesty',
     FEATHERLESS: 'featherless',
+    SURPLUS: 'surplus',
 };
 
 const character_names_behavior = {
@@ -388,6 +389,8 @@ function isMoonshotProviderModel(source, model) {
             return modelId.includes('moonshot') || modelId.includes('kimi');
         case chat_completion_sources.FEATHERLESS:
             return /(?:^|\/)moonshotai\//.test(modelId);
+        case chat_completion_sources.SURPLUS:
+            return /^kimi-/.test(nativeModel);
         default:
             return false;
     }
@@ -427,6 +430,7 @@ export function isGlmProviderModel(source, model) {
         case chat_completion_sources.FIREWORKS:
         case chat_completion_sources.ATLASCLOUD:
         case chat_completion_sources.FEATHERLESS:
+        case chat_completion_sources.SURPLUS:
             return true;
         case chat_completion_sources.OPENROUTER:
             return /^(?:z-ai|zai-org)\//.test(modelId);
@@ -526,6 +530,30 @@ export function isMoonshotThinkingEnabledModel(model, includeReasoning) {
  */
 function getClaudeModelId(model) {
     return String(model || '').toLowerCase().trim();
+}
+
+/**
+ * Normalizes a Surplus Intelligence Claude id (claude-opus-5.5, claude-opus-4.6:web) to the dashed Claude form.
+ * @param {string} model Model identifier
+ * @returns {string} Normalized model id
+ */
+function getSurplusClaudeModelId(model) {
+    return getClaudeModelId(model).replace(/:[a-z0-9_-]+$/, '').replace(/(\d)\.(\d)/g, '$1-$2');
+}
+
+/**
+ * Checks whether requests use the Anthropic Messages wire. That is the direct Claude source,
+ * and Surplus Intelligence when a Claude model is selected (routed through its Anthropic endpoint).
+ * @param {string} [source] Chat completion source, defaults to the selected one
+ * @param {string|null} [model] Model id, defaults to the selected Surplus Intelligence model
+ * @returns {boolean} True if the Anthropic Messages wire is used
+ */
+export function isClaudeWire(source = oai_settings.chat_completion_source, model = null) {
+    if (source === chat_completion_sources.CLAUDE) {
+        return true;
+    }
+
+    return source === chat_completion_sources.SURPLUS && /^claude[-.]/.test(getClaudeModelId(model ?? oai_settings.surplus_model));
 }
 
 /**
@@ -744,6 +772,9 @@ export const settingsToUpdate = {
     minimax_endpoint: ['#minimax_endpoint', 'minimax_endpoint', false, true],
     electronhub_model: ['#model_electronhub_select', 'electronhub_model', false, true],
     featherless_model: ['#model_featherless_chat_select', 'featherless_model', false, true],
+    surplus_model: ['#model_surplus_select', 'surplus_model', false, true],
+    surplus_min_discount_enabled: ['#surplus_min_discount_enabled', 'surplus_min_discount_enabled', true, true],
+    surplus_min_discount: ['#surplus_min_discount', 'surplus_min_discount', false, true],
     nanogpt_model: ['#model_nanogpt_select', 'nanogpt_model', false, true],
     nanogpt_provider: ['#nanogpt_provider', 'nanogpt_provider', false, true],
     nanogpt_payg_override: ['#nanogpt_payg_override', 'nanogpt_payg_override', true, true],
@@ -922,6 +953,9 @@ const default_settings = {
     minimax_endpoint: MINIMAX_ENDPOINT.GLOBAL,
     electronhub_model: 'gpt-4o-mini',
     featherless_model: 'TheDrummer/Rocinante-X-12B-v1',
+    surplus_model: 'claude-sonnet-4.6',
+    surplus_min_discount_enabled: false,
+    surplus_min_discount: 30,
     nanogpt_model: 'gpt-4o-mini',
     nanogpt_provider: '',
     nanogpt_payg_override: false,
@@ -1144,7 +1178,7 @@ function setOpenAIMessages(chat) {
         const reasoningDetails = isSameModel && !isOtherGroupMember && preserveVeniceReasoning && Array.isArray(chat[j]?.extra?.venice_reasoning_details)
             ? structuredClone(chat[j].extra.venice_reasoning_details)
             : [];
-        const claudeThinkingBlocks = isSameModel && !isOtherGroupMember && currentApi === chat_completion_sources.CLAUDE && Array.isArray(chat[j]?.extra?.claude_thinking_blocks)
+        const claudeThinkingBlocks = isSameModel && !isOtherGroupMember && isClaudeWire(currentApi, currentModel) && Array.isArray(chat[j]?.extra?.claude_thinking_blocks)
             ? structuredClone(chat[j].extra.claude_thinking_blocks)
             : [];
 
@@ -1504,7 +1538,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             }
         }
     }
-    const preserveClaudeThinking = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && oai_settings.claude_preserved_thinking;
+    const preserveClaudeThinking = isClaudeWire() && oai_settings.claude_preserved_thinking;
     const preservedClaudeThinkingPrompts = new Set();
     if (preserveClaudeThinking) {
         let remaining = oai_settings.claude_preserved_thinking_all ? Infinity : getClaudePreservedThinkingCount();
@@ -1930,7 +1964,7 @@ async function populateChatCompletion(prompts, chatCompletion, { bias, quietProm
     if (type === 'continue' && oai_settings.continue_prefill && messages.length) {
         const chatMessage = messages.shift();
         const isAssistantRole = chatMessage.role === 'assistant';
-        const supportsAssistantPrefill = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
+        const supportsAssistantPrefill = isClaudeWire();
         const namesInCompletion = oai_settings.names_behavior === character_names_behavior.COMPLETION;
         const assistantPrefill = isAssistantRole && supportsAssistantPrefill ? substituteParams(oai_settings.assistant_prefill) : '';
         const messageContent = [assistantPrefill, chatMessage.content].filter(x => x).join('\n\n');
@@ -2387,6 +2421,8 @@ export function getChatCompletionModel(settings = null) {
             return settings.workers_ai_model;
         case chat_completion_sources.FEATHERLESS:
             return settings.featherless_model;
+        case chat_completion_sources.SURPLUS:
+            return settings.surplus_model;
         default:
             console.error(`Unknown chat completion source: ${source}`);
             return '';
@@ -3091,6 +3127,25 @@ function saveModelList(data) {
         }
 
         $('#model_atlascloud_select').val(oai_settings.atlascloud_model).trigger('change');
+    }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.SURPLUS) {
+        $('#model_surplus_select').empty();
+        model_list.sort((a, b) => String(a?.id || '').localeCompare(String(b?.id || '')));
+        model_list.forEach((model) => {
+            $('#model_surplus_select').append(
+                $('<option>', {
+                    value: model.id,
+                    text: model.id,
+                }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.surplus_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.surplus_model)) {
+            oai_settings.surplus_model = model_list.find(model => model.id === default_settings.surplus_model)?.id ?? model_list[0].id;
+        }
+
+        $('#model_surplus_select').val(oai_settings.surplus_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
@@ -3931,6 +3986,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.VERTEXAI,
         chat_completion_sources.MAKERSUITE,
         chat_completion_sources.CHUTES,
+        chat_completion_sources.SURPLUS,
     ];
 
     // Sources that support proxying
@@ -4097,8 +4153,8 @@ export async function createGenerationParameters(settings, model, type, messages
         delete generate_data.logprobs;
     }
 
-    if (settings.chat_completion_source === chat_completion_sources.CLAUDE) {
-        const disableThinking = Boolean(settings.claude_disable_thinking) && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getClaudeModelId(model));
+    if (isClaudeWire(settings.chat_completion_source, model)) {
+        const disableThinking = Boolean(settings.claude_disable_thinking) && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getSurplusClaudeModelId(model));
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.use_sysprompt = settings.use_sysprompt;
         generate_data.claude_disable_thinking = disableThinking;
@@ -4114,7 +4170,7 @@ export async function createGenerationParameters(settings, model, type, messages
         }
     }
 
-    const usesClaudePromptCaching = settings.chat_completion_source === chat_completion_sources.CLAUDE
+    const usesClaudePromptCaching = isClaudeWire(settings.chat_completion_source, model)
         || (settings.chat_completion_source === chat_completion_sources.OPENROUTER && /^anthropic\/claude/i.test(String(model || '')));
     if (usesClaudePromptCaching) {
         generate_data.claude_prompt_cache_mode = settings.claude_prompt_cache_mode;
@@ -4361,6 +4417,18 @@ export async function createGenerationParameters(settings, model, type, messages
         }
     }
 
+    // Surplus Intelligence forwards to the original provider APIs. Claude models use its Anthropic Messages endpoint
+    // (same request as the direct Claude source); other models use the OpenAI-compatible endpoint.
+    // The provider-specific request rules (sampler restrictions, thinking shape, tool limits) are applied by the backend.
+    if (settings.chat_completion_source === chat_completion_sources.SURPLUS) {
+        generate_data.top_k = Number(settings.top_k_openai);
+        generate_data.min_p = Number(settings.min_p_openai);
+        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
+        if (settings.surplus_min_discount_enabled) {
+            generate_data.surplus_min_discount = getSurplusMinDiscount(settings);
+        }
+    }
+
     if (settings.chat_completion_source === chat_completion_sources.ATLASCLOUD) {
         const atlascloudModel = String(model || '').toLowerCase();
         const atlascloudNativeModel = atlascloudModel.includes('/') ? atlascloudModel.split('/').slice(1).join('/') : atlascloudModel;
@@ -4518,12 +4586,12 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_a = Number(settings.top_a_openai);
     }
 
-    if ([chat_completion_sources.MOONSHOT, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS].includes(settings.chat_completion_source)) {
+    if ([chat_completion_sources.MOONSHOT, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS, chat_completion_sources.SURPLUS].includes(settings.chat_completion_source)) {
         generate_data.moonshot_thinking_prefill = Boolean(settings.moonshot_thinking_prefill);
         generate_data.moonshot_preserved_thinking = Boolean(settings.moonshot_preserved_thinking);
     }
 
-    if ([chat_completion_sources.ZAI, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS].includes(settings.chat_completion_source)) {
+    if ([chat_completion_sources.ZAI, chat_completion_sources.OPENROUTER, chat_completion_sources.FIREWORKS, chat_completion_sources.ATLASCLOUD, chat_completion_sources.FEATHERLESS, chat_completion_sources.SURPLUS].includes(settings.chat_completion_source)) {
         generate_data.glm_preserved_thinking = Boolean(settings.glm_preserved_thinking);
     }
 
@@ -4830,11 +4898,11 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
  * @param {number?} [options.reasoningSwipeIndex] Alternate swipe index for reasoning capture
  * @returns {string} The reply extracted from the response data
  */
-export function getStreamingReply(data, state, { chatCompletionSource = null, overrideShowThoughts = null, captureReasoning = true, reasoningSwipeIndex = null } = {}) {
+export function getStreamingReply(data, state, { chatCompletionSource = null, overrideShowThoughts = null, captureReasoning = true, reasoningSwipeIndex = null, model = null } = {}) {
     const chat_completion_source = chatCompletionSource ?? oai_settings.chat_completion_source;
     const show_thoughts = overrideShowThoughts ?? oai_settings.show_thoughts;
 
-    if (chat_completion_source === chat_completion_sources.CLAUDE) {
+    if (isClaudeWire(chat_completion_source, model)) {
         updateClaudeThinkingBlocksFromStream(data, state);
         updateClaudeResponseMetadataFromStream(data, state);
         if (show_thoughts) {
@@ -4905,7 +4973,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
             }
         });
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.VENICE, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FEATHERLESS].includes(chat_completion_source)) {
+    } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.AGENTROUTER, chat_completion_sources.VENICE, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.REQUESTY, chat_completion_sources.MOONSHOT, chat_completion_sources.FIREWORKS, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.NVIDIA, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.ATLASCLOUD, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FEATHERLESS, chat_completion_sources.SURPLUS].includes(chat_completion_source)) {
         const reasoningDelta = data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content
             ?? data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning
             ?? '';
@@ -5649,7 +5717,7 @@ class MessageCollection {
      * @returns {Array} Array of objects with role, name, and content properties.
      */
     getChat() {
-        const includeClaudeToolErrors = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
+        const includeClaudeToolErrors = isClaudeWire();
         return this.collection.reduce((acc, message) => {
             if (message.content || message.tool_calls) {
                 acc.push({
@@ -5942,7 +6010,7 @@ export class ChatCompletion {
      */
     getChat() {
         const chat = [];
-        const includeClaudeToolErrors = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
+        const includeClaudeToolErrors = isClaudeWire();
         for (let item of this.messages.collection) {
             if (item instanceof MessageCollection) {
                 chat.push(...item.getChat());
@@ -6190,6 +6258,9 @@ function loadOpenAISettings(data, settings) {
 
     $(`#settings_preset_openai option[value="${openai_setting_names[oai_settings.preset_settings_openai]}"]`).prop('selected', true);
     $('#bind_preset_to_connection').prop('checked', oai_settings.bind_preset_to_connection);
+    oai_settings.surplus_min_discount = getSurplusMinDiscount(oai_settings);
+    $('#surplus_min_discount').val(oai_settings.surplus_min_discount);
+    updateSurplusMinDiscountControls();
     $('#openai_external_category').toggle(oai_settings.show_external_models);
     $('.reverse_proxy_warning').toggle(oai_settings.reverse_proxy !== '');
 
@@ -6288,10 +6359,29 @@ function setContinuePostfixControls() {
     $('#continue_postfix_display').text(checkedItemText);
 }
 
+/**
+ * Gets the sanitized Surplus Intelligence minimum discount percentage.
+ * @param {ChatCompletionSettings} settings Chat completion settings
+ * @returns {number} Integer percentage from 0 to 100
+ */
+function getSurplusMinDiscount(settings) {
+    const value = Math.round(Number(settings.surplus_min_discount));
+    return Number.isFinite(value) ? clamp(value, 0, 100) : default_settings.surplus_min_discount;
+}
+
+/**
+ * Enables the minimum discount input only while the toggle is on.
+ */
+function updateSurplusMinDiscountControls() {
+    $('#surplus_min_discount').prop('disabled', !oai_settings.surplus_min_discount_enabled);
+    $('#surplus_min_discount_block').toggleClass('opacity50p', !oai_settings.surplus_min_discount_enabled);
+}
+
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
     const isOpenAIResponses = oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.openai_api_type === openai_api_types.RESPONSES;
-    const isClaudeOpus5 = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getClaudeModelId(oai_settings.claude_model));
+    const isClaudeOpus5 = (oai_settings.chat_completion_source === chat_completion_sources.CLAUDE && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getClaudeModelId(oai_settings.claude_model)))
+        || (oai_settings.chat_completion_source === chat_completion_sources.SURPLUS && /^claude-opus-5(?:$|-)(?!5(?:$|-))/.test(getSurplusClaudeModelId(oai_settings.surplus_model)));
     const supportsReasoningMode = isOpenAIResponses && isOpenAIReasoningModeModel(getChatCompletionModel(oai_settings));
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
     $('#openai_reasoning_effort').prop('disabled', [chat_completion_sources.ATLASCLOUD, chat_completion_sources.FIREWORKS].includes(oai_settings.chat_completion_source) && !isEnabled);
@@ -6346,19 +6436,21 @@ function setClaudePreservedThinkingControls() {
 function setClaudePromptCacheControls() {
     const mode = String(oai_settings.claude_prompt_cache_mode || 'config');
     const isDirectClaude = oai_settings.chat_completion_source === chat_completion_sources.CLAUDE;
+    const isSurplusClaude = isClaudeWire() && !isDirectClaude;
     const isOpenRouterClaude = oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
         && /^anthropic\/claude/i.test(String(oai_settings.openrouter_model || ''));
     const usesRuntimeSettings = mode !== 'config';
     $('#claude_prompt_cache_block').toggle(isDirectClaude);
     $('#openrouter_claude_prompt_cache_block').toggle(isOpenRouterClaude);
-    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode').val(mode);
-    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth')
+    $('#surplus_claude_prompt_cache_block').toggle(isSurplusClaude);
+    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode, #surplus_claude_prompt_cache_mode').val(mode);
+    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth, #surplus_claude_prompt_cache_depth')
         .val(oai_settings.claude_prompt_cache_depth)
         .prop('disabled', mode !== 'depth');
-    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system')
+    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system, #surplus_claude_prompt_cache_system')
         .prop('checked', Boolean(oai_settings.claude_prompt_cache_system))
         .prop('disabled', !usesRuntimeSettings || mode === 'off');
-    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl')
+    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl, #surplus_claude_prompt_cache_ttl')
         .val(oai_settings.claude_prompt_cache_ttl)
         .prop('disabled', !usesRuntimeSettings || mode === 'off');
 }
@@ -7294,6 +7386,22 @@ function getSiliconflowMaxContext(model, isUnlocked) {
 }
 
 /**
+ * Get the maximum context size for the Surplus Intelligence model
+ * @param {string} model Model identifier
+ * @param {boolean} isUnlocked Whether context limits are unlocked
+ * @returns {number} Maximum context size in tokens
+ */
+function getSurplusMaxContext(model, isUnlocked) {
+    if (isUnlocked) {
+        return unlocked_max;
+    }
+
+    const modelInfo = Array.isArray(model_list) ? model_list.find(m => m.id === model) : null;
+    const contextLength = Number(modelInfo?.context_length);
+    return Number.isFinite(contextLength) && contextLength > 0 ? contextLength : max_128k;
+}
+
+/**
  * Get the maximum context size for the Atlascloud model
  * @param {string} model Model identifier
  * @param {boolean} isUnlocked Whether context limits are unlocked
@@ -7608,6 +7716,18 @@ async function onModelChange() {
         }
         console.log('Atlascloud model changed to', value);
         oai_settings.atlascloud_model = value;
+    }
+
+    if ($(this).is('#model_surplus_select')) {
+        if (!value) {
+            console.debug('Null Surplus Intelligence model selected. Ignoring.');
+            return;
+        }
+        console.log('Surplus Intelligence model changed to', value);
+        oai_settings.surplus_model = value;
+        updateDataSourceVisibility();
+        setClaudePromptCacheControls();
+        setToolReasoningControls();
     }
 
     if ($(this).is('#model_minimax_select')) {
@@ -8114,6 +8234,16 @@ async function onModelChange() {
         $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.SURPLUS) {
+        const maxContext = getSurplusMaxContext(oai_settings.surplus_model, oai_settings.max_context_unlocked);
+        const maxTemp = /^claude[-.]/i.test(String(oai_settings.surplus_model || '')) ? claude_max_temp : oai_max_temp;
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(maxTemp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', maxTemp).val(oai_settings.temp_openai).trigger('input');
+    }
+
     if (oai_settings.chat_completion_source === chat_completion_sources.MINIMAX) {
         const maxContext = oai_settings.minimax_model === 'M2-her' ? 65536 : 204800;
         $('#openai_max_context').attr('max', maxContext);
@@ -8195,6 +8325,7 @@ async function onConnectButtonClick(e) {
         [chat_completion_sources.WORKERS_AI]: { key: SECRET_KEYS.WORKERS_AI, selector: '#api_key_workers_ai', proxy: false },
         [chat_completion_sources.MINIMAX]: { key: SECRET_KEYS.MINIMAX, selector: '#api_key_minimax', proxy: true },
         [chat_completion_sources.FEATHERLESS]: { key: SECRET_KEYS.FEATHERLESS, selector: '#api_key_featherless', proxy: false },
+        [chat_completion_sources.SURPLUS]: { key: SECRET_KEYS.SURPLUS, selector: '#api_key_surplus', proxy: false },
     };
 
     // Vertex AI Express version - use API key
@@ -8303,19 +8434,33 @@ function toggleChatCompletionForms() {
         $('#model_workers_ai_select').trigger('change');
     } else if (oai_settings.chat_completion_source == chat_completion_sources.FEATHERLESS) {
         $('#model_featherless_chat_select').trigger('change');
+    } else if (oai_settings.chat_completion_source == chat_completion_sources.SURPLUS) {
+        $('#model_surplus_select').trigger('change');
     }
 
-    $('[data-source]').each(function () {
-        const mode = $(this).data('source-mode');
-        const validSources = $(this).data('source').split(',');
-        const matchesSource = validSources.includes(oai_settings.chat_completion_source);
-        $(this).toggle(mode !== 'except' ? matchesSource : !matchesSource);
-    });
+    updateDataSourceVisibility();
 
     updateModelSortingControls();
 
     setToolReasoningControls();
     updateOpenRouterSamplerSupportIndicators();
+}
+
+/**
+ * Shows the controls that belong to the selected source. Controls marked with
+ * data-claude-wire-only are additionally hidden for Surplus Intelligence models that aren't Claude.
+ */
+function updateDataSourceVisibility() {
+    const isClaude = isClaudeWire();
+    $('[data-source]').each(function () {
+        const mode = $(this).data('source-mode');
+        const validSources = $(this).data('source').split(',');
+        const matchesSource = validSources.includes(oai_settings.chat_completion_source);
+        const hiddenByModel = this.hasAttribute('data-claude-wire-only')
+            && oai_settings.chat_completion_source === chat_completion_sources.SURPLUS
+            && !isClaude;
+        $(this).toggle((mode !== 'except' ? matchesSource : !matchesSource) && !hiddenByModel);
+    });
 }
 
 function updateModelSortingControls() {
@@ -8507,6 +8652,11 @@ export function isImageInliningSupported() {
             return Boolean(Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.venice_model)?.model_spec?.capabilities?.supportsVision);
         case chat_completion_sources.AGENTROUTER:
             return visionSupportedModels.some(model => String(oai_settings.agentrouter_model || '').includes(model));
+        case chat_completion_sources.SURPLUS: {
+            // The catalog declares image input through either signal; the router accepts a model when either says so.
+            const surplusModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.surplus_model);
+            return Boolean(surplusModel?.architecture?.input_modalities?.includes('image') || surplusModel?.supported_features?.includes('vision'));
+        }
         case chat_completion_sources.CUSTOM:
             return true;
         case chat_completion_sources.MISTRALAI:
@@ -9512,26 +9662,26 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
-    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode').on('input', function () {
+    $('#claude_prompt_cache_mode, #openrouter_claude_prompt_cache_mode, #surplus_claude_prompt_cache_mode').on('input', function () {
         oai_settings.claude_prompt_cache_mode = String($(this).val() || 'config');
         setClaudePromptCacheControls();
         saveSettingsDebounced();
     });
 
-    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth').on('input', function () {
+    $('#claude_prompt_cache_depth, #openrouter_claude_prompt_cache_depth, #surplus_claude_prompt_cache_depth').on('input', function () {
         const depth = Math.trunc(Number($(this).val()));
         oai_settings.claude_prompt_cache_depth = Number.isFinite(depth) && depth >= 0 ? depth : 0;
         setClaudePromptCacheControls();
         saveSettingsDebounced();
     });
 
-    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system').on('input', function () {
+    $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system, #surplus_claude_prompt_cache_system').on('input', function () {
         oai_settings.claude_prompt_cache_system = Boolean($(this).prop('checked'));
         setClaudePromptCacheControls();
         saveSettingsDebounced();
     });
 
-    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl').on('input', function () {
+    $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl, #surplus_claude_prompt_cache_ttl').on('input', function () {
         oai_settings.claude_prompt_cache_ttl = String($(this).val()) === '1h' ? '1h' : '5m';
         setClaudePromptCacheControls();
         saveSettingsDebounced();
@@ -9700,6 +9850,26 @@ export function initOpenAI() {
         saveSettingsDebounced();
     });
 
+    $('#surplus_min_discount_enabled').on('input', function () {
+        oai_settings.surplus_min_discount_enabled = !!$(this).prop('checked');
+        updateSurplusMinDiscountControls();
+        saveSettingsDebounced();
+    });
+
+    $('#surplus_min_discount').on('input', function () {
+        const value = Math.round(Number($(this).val()));
+        if (Number.isFinite(value)) {
+            oai_settings.surplus_min_discount = clamp(value, 0, 100);
+            saveSettingsDebounced();
+        }
+    });
+
+    $('#surplus_min_discount').on('change', function () {
+        oai_settings.surplus_min_discount = getSurplusMinDiscount(oai_settings);
+        $(this).val(oai_settings.surplus_min_discount);
+        saveSettingsDebounced();
+    });
+
     $('#fireworks_prompt_caching').on('input', function () {
         oai_settings.fireworks_prompt_caching = !!$(this).prop('checked');
         saveSettingsDebounced();
@@ -9786,6 +9956,7 @@ export function initOpenAI() {
     $('#model_minimax_select').on('change', onModelChange);
     $('#model_electronhub_select').on('change', onModelChange);
     $('#model_featherless_chat_select').on('change', onModelChange);
+    $('#model_surplus_select').on('change', onModelChange);
     $('#model_nanogpt_select').on('change', onModelChange);
     $('#model_deepseek_select').on('change', onModelChange);
     $('#model_aimlapi_select').on('change', onModelChange);

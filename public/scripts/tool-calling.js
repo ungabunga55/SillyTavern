@@ -702,6 +702,8 @@ export class ToolManager {
                     return Array.isArray(currentModel.properties) && currentModel.properties.some(p => p.property_id === 'function_calling' && p.value === 'true');
                 case chat_completion_sources.VENICE:
                     return currentModel.model_spec?.capabilities?.supportsFunctionCalling === true;
+                case chat_completion_sources.SURPLUS:
+                    return Array.isArray(currentModel.supported_parameters) ? currentModel.supported_parameters.includes('tools') : true;
             }
         }
 
@@ -736,6 +738,7 @@ export class ToolManager {
             chat_completion_sources.WORKERS_AI,
             chat_completion_sources.MINIMAX,
             chat_completion_sources.FEATHERLESS,
+            chat_completion_sources.SURPLUS,
         ];
         return supportedSources.includes(settings.chat_completion_source);
     }

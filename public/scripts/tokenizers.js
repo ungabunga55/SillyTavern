@@ -790,6 +790,28 @@ export function getTokenizerModel() {
         }
     }
 
+    if (oai_settings.chat_completion_source == chat_completion_sources.SURPLUS && oai_settings.surplus_model) {
+        const model = oai_settings.surplus_model.toLowerCase();
+
+        if (model.startsWith('claude')) {
+            return claudeTokenizer;
+        } else if (model.includes('deepseek')) {
+            return deepseekTokenizer;
+        } else if (model.includes('qwen') || model.includes('qwq') || model.includes('kimi') || model.includes('glm')) {
+            return qwen2Tokenizer;
+        } else if (model.includes('llama-3') || model.includes('llama3') || model.includes('llama-4')) {
+            return llama3Tokenizer;
+        } else if (model.includes('llama')) {
+            return llamaTokenizer;
+        } else if (model.includes('gemma')) {
+            return gemmaTokenizer;
+        } else if (model.includes('mistral') || model.includes('mixtral')) {
+            return mistralTokenizer;
+        } else if (model.includes('gpt-oss')) {
+            return gpt4oTokenizer;
+        }
+    }
+
     if (oai_settings.chat_completion_source == chat_completion_sources.WORKERS_AI && oai_settings.workers_ai_model) {
         const model = oai_settings.workers_ai_model.toLowerCase();
 

@@ -218,6 +218,7 @@ export const CHAT_COMPLETION_SOURCES = {
     REQUESTY: 'requesty',
     WORKERS_AI: 'workers_ai',
     FEATHERLESS: 'featherless',
+    SURPLUS: 'surplus',
 };
 
 /**
