@@ -618,7 +618,7 @@ function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6-astra(?:$|-)/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
         return true;
     }
     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
@@ -3806,7 +3806,7 @@ function getReasoningEffort(settings = null, model = null) {
                 return undefined;
             case reasoning_effort_types.min:
                 if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
-                    if (/^gpt-6-astra(?:$|-)/.test(model)) {
+                    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model)) {
                         return reasoning_effort_types.low;
                     }
                     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(model)) {
@@ -4567,12 +4567,12 @@ export async function createGenerationParameters(settings, model, type, messages
         }
     }
 
-    if (gptSources.includes(settings.chat_completion_source) && /(?:gpt-5|gpt-6(?:$|-))/.test(model)) {
+    if (gptSources.includes(settings.chat_completion_source) && /(?:gpt-5|gpt-6(?:\.\d+)?(?:$|-))/.test(model)) {
         generate_data.max_completion_tokens = generate_data.max_tokens;
         delete generate_data.max_tokens;
         delete generate_data.logprobs;
         delete generate_data.top_logprobs;
-        if (/gpt-6-astra(?:$|-)/.test(model) && !isNativeResponses) {
+        if (/gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model) && !isNativeResponses) {
             delete generate_data.tools;
             delete generate_data.tool_choice;
         }
@@ -7039,7 +7039,7 @@ function getMaxContextOpenAI(value) {
     /** @type {[RegExp, number][]} */
     const contextMap = [
         [/^gpt-5\.4-(?:mini|nano)(?:$|-)/, max_400k],
-        [/^(?:gpt-5\.[456]|gpt-6)(?:$|-)/, max_1mil],
+        [/^(?:gpt-5\.[456]|gpt-6(?:\.\d+)?)(?:$|-)/, max_1mil],
         [/^gpt-5/, max_400k],
         [/gpt-4\.1/, max_1mil],
         [/gpt-audio/, max_128k],
@@ -7824,7 +7824,7 @@ async function onModelChange() {
     if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
-        } else if (/^claude-(sonnet-4-5|sonnet-4-6|sonnet-5|opus-4-6|opus-4-7|opus-4-8|opus-5|opus-5-5|fable-5|mythos-5)/.test(value)) {
+        } else if (/^claude-(sonnet-4-5|sonnet-4-6|sonnet-5|sonnet-5-5|opus-4-6|opus-4-7|opus-4-8|opus-5|opus-5-5|fable-5|mythos-5)/.test(value)) {
             $('#openai_max_context').attr('max', max_1mil);
         } else if (/^claude-(3|opus|haiku|sonnet)/.test(value)) {
             $('#openai_max_context').attr('max', max_200k);
@@ -8423,6 +8423,7 @@ export function isImageInliningSupported() {
         'claude-opus-5',
         'claude-opus-5-5',
         'claude-sonnet-4',
+        'claude-sonnet-5-5',
         'claude-sonnet-5',
         'claude-haiku-4',
         'claude-fable-5',

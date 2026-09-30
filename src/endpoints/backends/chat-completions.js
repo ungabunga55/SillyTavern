@@ -384,7 +384,7 @@ function isClaudeVerbosityModel(model) {
  * @returns {boolean} True if adaptive thinking is forced on
  */
 function isClaudeForcedAdaptiveThinkingModel(model) {
-    return /^claude-(?:fable-5|mythos-5|mythos-preview|opus-5-5)(?:$|-)/.test(getClaudeModelId(model));
+    return /^claude-(?:fable-5|mythos-5|mythos-preview|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(model));
 }
 
 /**
@@ -403,7 +403,7 @@ function getOpenAIReasoningEffort(model, effort) {
         return effort;
     }
 
-    if (/^gpt-6-astra(?:$|-)/.test(modelId)) {
+    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
         return 'low';
     }
 
@@ -453,7 +453,7 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6-astra(?:$|-)/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
         return true;
     }
     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
@@ -1904,7 +1904,7 @@ async function sendClaudeRequest(request, response) {
         const noSamplingModel = isClaudeNoSamplingModel(request.body.model);
         const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(request.body.model);
         const omittedThinkingDisplayModel = noSamplingModel;
-        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5)(?:$|-)/.test(getClaudeModelId(request.body.model));
+        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(request.body.model));
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -1946,7 +1946,7 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Structured output is a forced tool on older models. Fable/Mythos 5.1 and Opus 5.5
+        // Structured output is a forced tool on older models. Fable/Mythos 5.1, Opus 5.5, and Sonnet 5.5
         // reject forced tool_choice and output_config.format, so use a strict tool with auto choice.
         if (request.body.json_schema) {
             if (noForcedToolsModel) {
@@ -3401,7 +3401,7 @@ async function sendAzureOpenAIRequest(request, response) {
     apiRequestBody['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
 
     // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
-    if (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
         || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase()) && apiRequestBody['reasoning_effort'] !== 'none')) {
         delete apiRequestBody.tools;
         delete apiRequestBody.tool_choice;
@@ -4687,7 +4687,7 @@ router.post('/generate', async function (request, response) {
         // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI
             && !useOpenAIResponsesApi
-            && (/^gpt-6-astra(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+            && (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
                 || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
                     && String(requestBody?.reasoning_effort ?? bodyParams?.reasoning_effort ?? request.body.reasoning_effort ?? '').toLowerCase() !== 'none'))) {
             delete requestBody.tools;
