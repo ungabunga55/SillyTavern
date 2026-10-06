@@ -7235,7 +7235,7 @@ function getMistralMaxContext(model, isUnlocked) {
         }
     }
 
-    if (['glm-5-2', 'zai-glm-5-2'].includes(model) || String(model).startsWith('mistral-large-4')) {
+    if (['glm-5-2', 'zai-glm-5-2', 'glm-5-3', 'zai-glm-5-3'].includes(model) || String(model).startsWith('mistral-large-4')) {
         return max_1mil;
     }
 
