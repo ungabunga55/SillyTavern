@@ -7235,7 +7235,7 @@ function getMistralMaxContext(model, isUnlocked) {
         }
     }
 
-    if (['glm-5-2', 'zai-glm-5-2'].includes(model)) {
+    if (['glm-5-2', 'zai-glm-5-2'].includes(model) || String(model).startsWith('mistral-large-4')) {
         return max_1mil;
     }
 
@@ -8594,6 +8594,7 @@ export function isImageInliningSupported() {
         'mistral-medium-latest',
         'mistral-medium-2505',
         'mistral-medium-2508',
+        'mistral-large-4',
         'pixtral',
         // xAI (Grok)
         'grok-4',
