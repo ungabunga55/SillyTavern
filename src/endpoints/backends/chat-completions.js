@@ -386,7 +386,7 @@ function isClaudeVerbosityModel(model) {
  * @returns {boolean} True if adaptive thinking is forced on
  */
 function isClaudeForcedAdaptiveThinkingModel(model) {
-    return /^claude-(?:fable-5|mythos-5|mythos-preview|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(model));
+    return /^claude-(?:fable-5|mythos-5|mythos-preview|opus-5-5|sonnet-5-5|haiku-5-5)(?:$|-)/.test(getClaudeModelId(model));
 }
 
 /**
@@ -2294,7 +2294,7 @@ async function sendClaudeRequest(request, response) {
         const useMidConversationSystemMessages = supportsClaudeMidConversationSystemMessages(claudeModel);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request), useMidConversationSystemMessages);
         const useThinking = isClaudeThinkingModel(claudeModel);
-        const useWebSearch = /^claude-(3-5|3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(claudeModel) && Boolean(request.body.enable_web_search);
+        const useWebSearch = /^claude-(3-5|3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4-5|haiku-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5)/.test(claudeModel) && Boolean(request.body.enable_web_search);
         const isLimitedSampling = isClaudeLimitedSamplingModel(claudeModel);
         const useVerbosity = isClaudeVerbosityModel(claudeModel);
         const isAdaptiveModel = isClaudeAdaptiveThinkingModel(claudeModel, enableAdaptiveThinking);
