@@ -642,7 +642,7 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
                     };
 
                     // https://ai.google.dev/gemini-api/docs/gemini-3#media_resolution
-                    if (/gemini-3/.test(model) && mediaResolution) {
+                    if (/gemini-[34]/.test(model) && mediaResolution) {
                         part.mediaResolution = {
                             level: mediaResolution,
                         };
@@ -690,14 +690,14 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
 
         // https://ai.google.dev/gemini-api/docs/gemini-3#migrating_from_other_models
         // Inject stored thought signatures, or fall back to bypass magic for Gemini 3
-        if (/gemini-3/.test(model) || /gemini-2\.5/.test(model)) {
+        if (/gemini-[34]/.test(model) || /gemini-2\.5/.test(model)) {
             const skipSignatureMagic = 'skip_thought_signature_validator';
             const textSignature = message.signature;
 
             parts.forEach((part) => {
                 if (enableThoughtSignatures && textSignature && typeof part.text === 'string') {
                     part.thoughtSignature = textSignature;
-                } else if (/gemini-3/.test(model)) {
+                } else if (/gemini-[34]/.test(model)) {
                     // Gemini 3: Fall back to bypass magic for function calls (mandatory) and images
                     if (part.functionCall && !part.thoughtSignature) {
                         part.thoughtSignature = skipSignatureMagic;
@@ -1427,6 +1427,25 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         return null;
     }
 
+    function getGemini4ArgonBudget() {
+        // Supports low, medium and high thinking levels only (no minimal).
+        switch (reasoningEffort) {
+            case REASONING_EFFORT.auto:
+                return null;
+            case REASONING_EFFORT.min:
+            case REASONING_EFFORT.low:
+                return 'low';
+            case REASONING_EFFORT.medium:
+                return 'medium';
+            case REASONING_EFFORT.high:
+            case REASONING_EFFORT.xhigh:
+            case REASONING_EFFORT.max:
+                return 'high';
+        }
+
+        return null;
+    }
+
     function getGemini3ProBudget() {
         switch (reasoningEffort) {
             case REASONING_EFFORT.auto:
@@ -1445,6 +1464,10 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         }
 
         return null;
+    }
+
+    if (/gemini-4[.\d]*-argon/.test(model)) {
+        return getGemini4ArgonBudget();
     }
 
     if (/gemini-3[.\d]*-pro/.test(model)) {

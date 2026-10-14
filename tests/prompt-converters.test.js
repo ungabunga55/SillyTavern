@@ -326,6 +326,7 @@ describe('isGeminiNoSamplingModel', () => {
         'gemini-3.5-flash-lite-preview',
         'gemini-3.7-pro',
         'gemini-4-pro',
+        'gemini-4-argon',
     ])('omits sampling for %s', (model) => {
         expect(mod.isGeminiNoSamplingModel(model)).toBe(true);
     });
