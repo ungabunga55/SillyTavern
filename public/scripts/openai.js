@@ -355,7 +355,7 @@ export function isMoonshotKimiFixedParameterModel(model) {
  * @param {string} model Model identifier
  * @returns {boolean} True if the model uses the K3 request shape
  */
-function isMoonshotKimiK3OrNewerModel(model) {
+export function isMoonshotKimiK3OrNewerModel(model) {
     const match = String(model || '').match(moonshotKimiModelVersionRegex);
     return Boolean(match && Number(match[1]) >= 3);
 }
@@ -490,6 +490,7 @@ export function shouldCaptureReasoningForTools(source, model) {
     }
     if (source === chat_completion_sources.MOONSHOT) {
         return isMoonshotKimiAlwaysOnThinkingModel(model)
+            || isMoonshotKimiK3OrNewerModel(model)
             || (oai_settings.moonshot_preserved_thinking && isMoonshotProviderModel(source, model));
     }
     if (source === chat_completion_sources.ZAI) {
@@ -1510,6 +1511,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
         || oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER
         || isZaiAlwaysOnThinking
         || (isFeatherlessReasoningModel && isFeatherlessAlwaysOnThinkingModel(reasoningModel))
+        || (oai_settings.chat_completion_source === chat_completion_sources.MOONSHOT && isMoonshotKimiK3OrNewerModel(reasoningModel))
         || isMoonshotThinkingEnabledModel(reasoningModel, oai_settings.show_thoughts || (isMoonshotModel && oai_settings.moonshot_thinking_prefill))
     );
     const preservedThinkingPrompts = new Set();
@@ -3730,11 +3732,12 @@ function getReasoningEffort(settings = null, model = null) {
         }
 
         if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-            if (!settings.show_thoughts || !isMoonshotKimiK3OrNewerModel(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
+            // K3+ always thinks, so the effort is the only control and applies even when reasoning display is off.
+            if (!isMoonshotKimiK3OrNewerModel(model) || settings.reasoning_effort === reasoning_effort_types.auto) {
                 return undefined;
             }
 
-            // K3+ accepts max; pass other known/future values through as Moonshot enables them.
+            // The server maps the selected value to the levels supported by the specific K3 model.
             return settings.reasoning_effort;
         }
 
@@ -4604,6 +4607,12 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.frequency_penalty;
             delete generate_data.presence_penalty;
             delete generate_data.n;
+        }
+
+        // K3+ documents max_completion_tokens (up to 1M) instead of max_tokens.
+        if (isMoonshotKimiK3OrNewerModel(model)) {
+            generate_data.max_completion_tokens = generate_data.max_tokens;
+            delete generate_data.max_tokens;
         }
     }
 
@@ -7456,6 +7465,7 @@ function getMoonshotMaxContext(model, isUnlocked) {
         'kimi-k2.5': max_256k,
         'kimi-k2.6': max_256k,
         'kimi-k2.7-code': max_256k,
+        'kimi-k3': max_1mil,
         'kimi-k2-0905-preview': max_256k,
         'kimi-k2-turbo-preview': max_256k,
         'kimi-k2-thinking': max_256k,
@@ -8612,6 +8622,7 @@ export function isImageInliningSupported() {
         'kimi-k2.5',
         'kimi-k2.6',
         'kimi-k2.7-code',
+        'kimi-k3',
         'kimi-latest',
         // DeepSeek
         'deepseek',
@@ -8731,6 +8742,7 @@ export function isVideoInliningSupported() {
         'kimi-k2.5',
         'kimi-k2.6',
         'kimi-k2.7-code',
+        'kimi-k3',
         'kimi-latest',
         // Z.AI (GLM)
         'glm-5.3-flash',

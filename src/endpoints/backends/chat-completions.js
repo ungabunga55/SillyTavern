@@ -203,6 +203,23 @@ function isMoonshotKimiK3OrNewerModel(model) {
 }
 
 /**
+ * Maps SillyTavern's reasoning effort to the effort levels supported by a native Moonshot K3 model.
+ * K3 only supports max; K3.1 and newer support low, high and max.
+ * @param {string} model Model identifier
+ * @param {string} effort Selected reasoning effort
+ * @returns {string|undefined} Moonshot reasoning effort, or undefined to use the model default
+ */
+function getMoonshotKimiReasoningEffort(model, effort) {
+    if (!effort || effort === 'auto') return undefined;
+    const match = String(model || '').match(/^kimi-k(\d+)(?:\.(\d+))?(?:$|[-._])/);
+    const supportsEffortLevels = Boolean(match && (Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2] || 0) >= 1)));
+    if (!supportsEffortLevels) return effort;
+    if (['min', 'low'].includes(effort)) return 'low';
+    if (['medium', 'high'].includes(effort)) return 'high';
+    return 'max';
+}
+
+/**
  * Checks if an OpenRouter model belongs to the Moonshot provider family.
  * @param {string} model Model identifier
  * @returns {boolean} True if the model is published by Moonshot
@@ -4878,7 +4895,8 @@ router.post('/generate', async function (request, response) {
             const usesKimiK3RequestShape = isMoonshotKimiK3OrNewerModel(request.body.model);
             const thinkingPrefill = Boolean(request.body.moonshot_thinking_prefill) && !request.body.json_schema;
             const preservedThinking = Boolean(request.body.moonshot_preserved_thinking);
-            const thinkingEnabled = isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill || preservedThinking;
+            // K3+ always thinks and has no thinking toggle; only reasoning_effort controls it.
+            const thinkingEnabled = usesKimiK3RequestShape || isMoonshotKimiAlwaysOnThinkingModel(request.body.model) || Boolean(request.body.include_reasoning) || thinkingPrefill || preservedThinking;
             bodyParams = usesKimiK3RequestShape && thinkingEnabled
                 ? {}
                 : {
@@ -4886,8 +4904,9 @@ router.post('/generate', async function (request, response) {
                         type: thinkingEnabled ? 'enabled' : 'disabled',
                     },
                 };
-            if (usesKimiK3RequestShape && thinkingEnabled && request.body.reasoning_effort && request.body.reasoning_effort !== 'auto') {
-                bodyParams.reasoning_effort = request.body.reasoning_effort;
+            const kimiK3ReasoningEffort = usesKimiK3RequestShape ? getMoonshotKimiReasoningEffort(request.body.model, request.body.reasoning_effort) : undefined;
+            if (kimiK3ReasoningEffort) {
+                bodyParams.reasoning_effort = kimiK3ReasoningEffort;
             }
             normalizeReasoningContent(request.body.messages, thinkingEnabled, preservedThinking);
             if (request.body.json_schema) {
@@ -5117,7 +5136,7 @@ router.post('/generate', async function (request, response) {
             addAutomaticClaudeCacheControl(requestBody, claudePromptCacheSettings.automatic, claudePromptCacheSettings.ttl);
         }
 
-        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && isMoonshotKimiFixedParameterModel(request.body.model)) {
+        if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT && (isMoonshotKimiFixedParameterModel(request.body.model) || isMoonshotKimiK3OrNewerModel(request.body.model))) {
             delete requestBody.temperature;
             delete requestBody.presence_penalty;
             delete requestBody.frequency_penalty;

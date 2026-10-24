@@ -2350,7 +2350,7 @@
                                                 Fireworks maps reasoning to the selected serverless model family where possible. Generic models receive the selected effort directly; Auto uses the provider default.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="moonshot">
-                                                Kimi K3 currently supports Maximum reasoning effort. Other selected values are passed through for compatibility with future K3 effort levels; Auto uses Moonshot's default. K2 models ignore this setting.
+                                                Kimi K3 always thinks and currently supports Maximum reasoning effort. Kimi K3.1 supports Low, High and Maximum: Minimum and Low are sent as low, Medium and High as high, Extra High and Maximum as max. Auto uses Moonshot's default (max). This setting is applied even when Request model reasoning is off. K2 models ignore it.
                                             </div>
                                             <strong class="toggle-description justifyLeft marginBot5" data-source="openrouter">
                                                 OpenRouter receives Extra High as <code>xhigh</code> and Maximum as <code>max</code> for every model. Minimum is sent as <code>minimal</code> when reasoning is requested, or <code>none</code> when it is disabled. Auto does not send an effort level.
@@ -4619,6 +4619,8 @@
                             </div>
                             <h4 data-i18n="Moonshot AI Model">Moonshot AI Model</h4>
                             <select id="model_moonshot_select">
+                                <option value="kimi-k3.1-pro">kimi-k3.1-pro</option>
+                                <option value="kimi-k3.1-pro-highspeed">kimi-k3.1-pro-highspeed</option>
                                 <option value="kimi-k2-0711-preview">kimi-k2-0711-preview</option>
                                 <option value="moonshot-v1-8k">moonshot-v1-8k</option>
                                 <option value="moonshot-v1-32k">moonshot-v1-32k</option>
