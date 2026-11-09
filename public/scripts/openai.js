@@ -1561,6 +1561,8 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     }
     const includeToolReasoning = isVenice || preserveThinkingHistory || toolReasoningMode !== tool_reasoning_modes.DISABLED;
     const lastUserIdx = messages.findLastIndex(x => x.role === 'user');
+    // Injected prompts keep their distance from the end, so only a real chat message stays in place.
+    const lastChatMessage = messages.findLast(x => !x.injected);
 
     // Insert chat messages as long as there is budget available
     const chatPool = [...messages].reverse();
@@ -1712,6 +1714,8 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
         if (preservedClaudeThinkingPrompts.has(chatPrompt)) {
             await chatMessage.setClaudeThinkingBlocks(chatPrompt.claudeThinkingBlocks);
         }
+
+        chatMessage.cacheAnchor = chatPrompt === lastChatMessage;
 
         if (chatCompletion.canAfford(chatMessage)) {
             chatCompletion.insertAtStart(chatMessage, 'chatHistory');
@@ -5368,6 +5372,8 @@ class Message {
     reasoning = null;
     /** @type {object[]?} */
     claudeThinkingBlocks = null;
+    /** @type {boolean} Last message of the chat history: where the growing part of the prompt ends. */
+    cacheAnchor = false;
     /** @type {boolean} */
     tool_result_is_error = false;
 
@@ -5726,7 +5732,7 @@ class MessageCollection {
      * @returns {Array} Array of objects with role, name, and content properties.
      */
     getChat() {
-        const includeClaudeToolErrors = isClaudeWire();
+        const claudeWire = isClaudeWire();
         return this.collection.reduce((acc, message) => {
             if (message.content || message.tool_calls) {
                 acc.push({
@@ -5735,11 +5741,12 @@ class MessageCollection {
                     ...(message.name && { name: message.name }),
                     ...(message.tool_calls && { tool_calls: message.tool_calls }),
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
-                    ...(message.role === 'tool' && message.tool_result_is_error && includeClaudeToolErrors && { tool_result_is_error: true }),
+                    ...(message.role === 'tool' && message.tool_result_is_error && claudeWire && { tool_result_is_error: true }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
                     ...(message.reasoning_details?.length && { reasoning_details: message.reasoning_details }),
                     ...(message.claudeThinkingBlocks?.length && { claude_thinking_blocks: message.claudeThinkingBlocks }),
+                    ...(message.cacheAnchor && claudeWire && { claude_cache_anchor: true }),
                 });
             }
             return acc;
@@ -6019,7 +6026,7 @@ export class ChatCompletion {
      */
     getChat() {
         const chat = [];
-        const includeClaudeToolErrors = isClaudeWire();
+        const claudeWire = isClaudeWire();
         for (let item of this.messages.collection) {
             if (item instanceof MessageCollection) {
                 chat.push(...item.getChat());
@@ -6030,11 +6037,12 @@ export class ChatCompletion {
                     ...(item.name ? { name: item.name } : {}),
                     ...(item.tool_calls ? { tool_calls: item.tool_calls } : {}),
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
-                    ...(item.role === 'tool' && item.tool_result_is_error && includeClaudeToolErrors ? { tool_result_is_error: true } : {}),
+                    ...(item.role === 'tool' && item.tool_result_is_error && claudeWire ? { tool_result_is_error: true } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
                     ...(item.reasoning_details?.length ? { reasoning_details: item.reasoning_details } : {}),
                     ...(item.claudeThinkingBlocks?.length ? { claude_thinking_blocks: item.claudeThinkingBlocks } : {}),
+                    ...(item.cacheAnchor && claudeWire ? { claude_cache_anchor: true } : {}),
                 };
                 chat.push(message);
             } else {

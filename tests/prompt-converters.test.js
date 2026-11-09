@@ -1547,3 +1547,80 @@ describe('cachingAtDepthForOpenRouterClaude', () => {
         expect(typeof messages[1].content).toBe('string');
     });
 });
+
+describe('convertClaudeMessages cache anchor', () => {
+    const names = makeNames('Bot', 'User');
+
+    /**
+     * Builds the frontend messages of a chat with `turns` user turns, wrapped like a preset
+     * that places prompts both before and after the chat history.
+     * @param {number} turns Number of user turns
+     * @returns {object[]} Chat completion messages
+     */
+    function presetMessages(turns) {
+        const history = [];
+        for (let i = 1; i <= turns; i++) {
+            history.push({ role: 'user', content: `User ${i} ${'u'.repeat(400)}` });
+            if (i < turns) {
+                history.push({ role: 'assistant', content: `Bot ${i} ${'a'.repeat(400)}` });
+            }
+        }
+        history.at(-1).claude_cache_anchor = true;
+        return [
+            { role: 'system', content: '# System Instructions' },
+            { role: 'user', content: `# Database ${'d'.repeat(3000)}` },
+            { role: 'user', content: '<chapter_xxx>' },
+            ...history,
+            { role: 'user', content: '</chapter_xxx>' },
+            { role: 'user', content: '(ooc: Aim for around 150 to 350 words)' },
+        ];
+    }
+
+    /**
+     * Builds the request body the Claude backend sends with automatic caching.
+     * @param {number} turns Number of user turns
+     * @param {boolean} anchored Whether to place a breakpoint at the end of the chat history
+     * @returns {object} Anthropic Messages request body
+     */
+    function automaticRequest(turns, anchored) {
+        const converted = mod.convertClaudeMessages(presetMessages(turns), '', true, false, names);
+        if (anchored && converted.cacheAnchor) {
+            converted.cacheAnchor.cache_control = { type: 'ephemeral', ttl: '1h' };
+        }
+        return {
+            model: 'claude-fable-5-2',
+            system: converted.systemPrompt,
+            messages: converted.messages,
+            cache_control: { type: 'ephemeral', ttl: '1h' },
+        };
+    }
+
+    test('returns the block that ends the chat history and strips the marker', () => {
+        const result = mod.convertClaudeMessages(presetMessages(2), '', true, false, names);
+        const last = result.messages.at(-1);
+
+        expect(last.content.map(block => block.text.slice(0, 6))).toEqual(['User 2', '</chap', '(ooc: ']);
+        expect(result.cacheAnchor).toBe(last.content[0]);
+        expect(JSON.stringify(result.messages)).not.toContain('claude_cache_anchor');
+    });
+
+    test('has no anchor when the frontend marked nothing', () => {
+        const messages = presetMessages(2).map(({ claude_cache_anchor, ...message }) => message);
+
+        expect(mod.convertClaudeMessages(messages, '', true, false, names).cacheAnchor).toBeNull();
+    });
+
+    test('prompts after the chat history no longer cost a full cache write per message', async () => {
+        const { compareClaudeCachePrompts, getClaudeCachePrompt } = await import('../src/endpoints/backends/claude-cache.js');
+        const compare = (previous, current) => compareClaudeCachePrompts(getClaudeCachePrompt(previous), getClaudeCachePrompt(current));
+
+        const before = compare(automaticRequest(4, false), automaticRequest(5, false));
+        expect(before.lines.at(-1)).toMatch(/expect a full cache write/);
+
+        const after = compare(automaticRequest(4, true), automaticRequest(5, true));
+        expect(after.lines.at(-1)).toMatch(/^expect a cache read up to messages\[6\]\.content\[0\] \(user\), about 8\d% of this prompt\.$/);
+
+        // A swipe resends the same prompt and reads all of it.
+        expect(compare(automaticRequest(5, true), automaticRequest(5, true)).hit).toBe(true);
+    });
+});

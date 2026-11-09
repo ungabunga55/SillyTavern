@@ -2397,6 +2397,14 @@ async function sendClaudeRequest(request, response) {
             cachingAtDepthForClaude(convertedPrompt.messages, promptCache.depth, promptCache.ttl);
         }
 
+        // Prompts placed after the chat history move with every new message, so the entry automatic
+        // caching writes at the end of the prompt is never read back. Also write one where the chat ends.
+        if (promptCache.automatic && convertedPrompt.cacheAnchor) {
+            convertedPrompt.cacheAnchor.cache_control = promptCache.ttl === '1h'
+                ? { type: 'ephemeral', ttl: '1h' }
+                : { type: 'ephemeral' };
+        }
+
         if (promptCache.automatic || promptCache.system || promptCache.depth !== -1) {
             betaHeaders.push('prompt-caching-2024-07-31');
             if (promptCache.ttl === '1h') {

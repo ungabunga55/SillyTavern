@@ -270,7 +270,7 @@ export function convertClaudePrompt(messages, addAssistantPostfix, addAssistantP
  * @param {boolean}  useTools See if we want to use tools
  * @param {PromptNames} names Prompt names
  * @param {boolean} useMidConversationSystemMessages Preserve system messages after the leading system prompt
- * @returns {{messages: object[], systemPrompt: object[]}} Prompt for Anthropic
+ * @returns {{messages: object[], systemPrompt: object[], cacheAnchor: object|null}} Prompt for Anthropic. `cacheAnchor` is the content block that ends the chat history, if the frontend marked it.
  */
 export function convertClaudeMessages(messages, prefillString, useSysPrompt, useTools, names, useMidConversationSystemMessages = false) {
     let systemPrompt = [];
@@ -306,6 +306,8 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
             });
         }
     }
+
+    let cacheAnchor = null;
 
     // Unsupported models only accept the top-level system prompt, so flatten later system messages into user turns.
     const parse = (str) => typeof str === 'string' ? JSON.parse(str) : str;
@@ -392,11 +394,16 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
             });
         }
 
+        if (message.claude_cache_anchor && Array.isArray(message.content)) {
+            cacheAnchor = message.content.at(-1) ?? null;
+        }
+
         if (message.role === 'assistant' && thinkingBlocks.length > 0) {
             message.content.unshift(...thinkingBlocks);
         }
 
         // Remove offending properties
+        delete message.claude_cache_anchor;
         delete message.name;
         delete message.tool_calls;
         delete message.tool_call_id;
@@ -465,7 +472,7 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         });
     }
 
-    return { messages: mergedMessages, systemPrompt: systemPrompt };
+    return { messages: mergedMessages, systemPrompt: systemPrompt, cacheAnchor: cacheAnchor };
 }
 
 /**
