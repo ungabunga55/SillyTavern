@@ -2318,7 +2318,8 @@ async function sendClaudeRequest(request, response) {
         const noSamplingModel = isClaudeNoSamplingModel(claudeModel);
         const forcedAdaptiveModel = isClaudeForcedAdaptiveThinkingModel(claudeModel);
         const omittedThinkingDisplayModel = noSamplingModel;
-        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-1|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(claudeModel));
+        const noForcedToolsModel = /^claude-(?:(?:fable|mythos)-5-[12]|opus-5-5|sonnet-5-5)(?:$|-)/.test(getClaudeModelId(claudeModel));
+        const enforcedThinkingBindingModel = /^claude-(?:fable|mythos)-5-2(?:$|-)/.test(getClaudeModelId(claudeModel));
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -2360,7 +2361,7 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Structured output is a forced tool on older models. Fable/Mythos 5.1, Opus 5.5, and Sonnet 5.5
+        // Structured output is a forced tool on older models. Fable/Mythos 5.1+, Opus 5.5, and Sonnet 5.5
         // reject forced tool_choice and output_config.format, so use a strict tool with auto choice.
         if (request.body.json_schema) {
             if (noForcedToolsModel) {
@@ -2459,6 +2460,14 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.temperature;
             delete requestBody.top_p;
             delete requestBody.top_k;
+        }
+
+        // Fable/Mythos 5.2 reject replayed thinking blocks after any edit to the earlier prompt. Drop them instead.
+        const replaysThinking = requestBody.messages.some(message => Array.isArray(message.content)
+            && message.content.some(block => ['thinking', 'redacted_thinking'].includes(block?.type)));
+        if (enforcedThinkingBindingModel && replaysThinking && requestBody.thinking?.type === 'adaptive') {
+            requestBody.thinking.block_binding = { prefix_mismatch_behavior: 'drop_block' };
+            betaHeaders.push('thinking-binding-controls-2026-08-01');
         }
 
         // Verbosity = 'effort' (same values as OpenAI) - only if not already set by adaptive thinking
