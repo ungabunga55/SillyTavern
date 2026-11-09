@@ -77,6 +77,7 @@ import {
 import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
 import { getOpenRouterSessionId } from './openrouter-cache.js';
+import { checkClaudeCachePrefix } from './claude-cache.js';
 import { fetchFeatherlessModels } from './featherless.js';
 import { buildVeniceParameters, deriveVenicePromptCacheKey, normalizeVeniceModels } from './venice.js';
 
@@ -2482,6 +2483,14 @@ async function sendClaudeRequest(request, response) {
 
         addAutomaticClaudeCacheControl(requestBody, promptCache.automatic, promptCache.ttl);
         console.debug('Claude request:', requestBody);
+
+        if (promptCache.automatic || promptCache.system || promptCache.depth !== -1) {
+            const cacheCheck = checkClaudeCachePrefix(String(request.user?.profile?.handle ?? ''), requestBody);
+            if (cacheCheck) {
+                const paint = cacheCheck.hit ? color.green : color.yellow;
+                console.info(paint(`Claude cache: ${cacheCheck.lines.join('\n')}`));
+            }
+        }
 
         const generateResponse = await fetch(apiUrl + '/messages', {
             method: 'POST',
