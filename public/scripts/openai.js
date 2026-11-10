@@ -7204,7 +7204,7 @@ function getGeminiMaxContext(model, isUnlocked) {
         [/gemini-2\.5-flash-image/, max_32k],
         [/gemini-3-pro-image/, max_64k],
         [/gemini-(?:3[.\d]*|2\.(?:5|0))-(pro|flash)/, max_1mil],
-        [/gemini-4[.\d]*-argon/, max_1mil],
+        [/gemini-4[.\d]*-(argon|carbon)/, max_1mil],
         [/(gemini-exp|learnlm-2\.0-flash|gemini-robotics)/, max_1mil],
         [/gemma-3-27b-it/, max_128k],
         [/gemma-3n-e4b-it/, max_8k],

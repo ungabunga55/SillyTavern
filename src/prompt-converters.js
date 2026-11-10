@@ -1434,7 +1434,7 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         return null;
     }
 
-    function getGemini4ArgonBudget() {
+    function getGemini4Budget() {
         // Supports low, medium and high thinking levels only (no minimal).
         switch (reasoningEffort) {
             case REASONING_EFFORT.auto:
@@ -1473,8 +1473,8 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         return null;
     }
 
-    if (/gemini-4[.\d]*-argon/.test(model)) {
-        return getGemini4ArgonBudget();
+    if (/gemini-4[.\d]*-(argon|carbon)/.test(model)) {
+        return getGemini4Budget();
     }
 
     if (/gemini-3[.\d]*-pro/.test(model)) {
