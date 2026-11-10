@@ -22,6 +22,7 @@
     "claude_prompt_cache_mode": "config",
     "claude_prompt_cache_depth": 0,
     "claude_prompt_cache_system": false,
+    "claude_prompt_cache_history": false,
     "claude_prompt_cache_ttl": "5m",
     "openrouter_model": "OR_Website",
     "requesty_model": "openai/gpt-4o-mini",

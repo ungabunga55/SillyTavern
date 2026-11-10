@@ -2053,6 +2053,7 @@ function buildXAIResponsesRequestBody(request, bodyParams, input) {
  */
 const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
 const enableAutomaticPromptCache = getConfigValue('claude.enableAutomaticPromptCache', false, 'boolean');
+const cacheChatHistoryEnd = getConfigValue('claude.cacheChatHistoryEnd', false, 'boolean');
 const enableSystemPromptCache = getConfigValue('claude.enableSystemPromptCache', false, 'boolean');
 const cachingAtDepth = (() => {
     const value = getConfigValue('claude.cachingAtDepth', -1, 'number');
@@ -2099,13 +2100,14 @@ function addAutomaticClaudeCacheControl(requestBody, enabled = enableAutomaticPr
 /**
  * Resolves request-scoped Claude prompt caching settings, falling back to server configuration.
  * @param {object} body Request body
- * @returns {{automatic: boolean, system: boolean, depth: number, ttl: '5m'|'1h'}}
+ * @returns {{automatic: boolean, historyEnd: boolean, system: boolean, depth: number, ttl: '5m'|'1h'}}
  */
 function getClaudePromptCacheSettings(body) {
     const mode = String(body.claude_prompt_cache_mode || 'config');
     if (!['off', 'automatic', 'depth'].includes(mode)) {
         return {
             automatic: enableAutomaticPromptCache,
+            historyEnd: enableAutomaticPromptCache && cacheChatHistoryEnd,
             system: enableSystemPromptCache,
             depth: cachingAtDepth,
             ttl: cacheTTL,
@@ -2113,7 +2115,7 @@ function getClaudePromptCacheSettings(body) {
     }
 
     if (mode === 'off') {
-        return { automatic: false, system: false, depth: -1, ttl: '5m' };
+        return { automatic: false, historyEnd: false, system: false, depth: -1, ttl: '5m' };
     }
 
     const requestedDepth = Math.trunc(Number(body.claude_prompt_cache_depth));
@@ -2123,6 +2125,7 @@ function getClaudePromptCacheSettings(body) {
     }
     return {
         automatic: mode === 'automatic',
+        historyEnd: mode === 'automatic' && Boolean(body.claude_prompt_cache_history),
         system: Boolean(body.claude_prompt_cache_system),
         depth,
         ttl: body.claude_prompt_cache_ttl === '1h' ? '1h' : '5m',
@@ -2399,7 +2402,7 @@ async function sendClaudeRequest(request, response) {
 
         // Prompts placed after the chat history move with every new message, so the entry automatic
         // caching writes at the end of the prompt is never read back. Also write one where the chat ends.
-        if (promptCache.automatic && convertedPrompt.cacheAnchor) {
+        if (promptCache.historyEnd && convertedPrompt.cacheAnchor) {
             convertedPrompt.cacheAnchor.cache_control = promptCache.ttl === '1h'
                 ? { type: 'ephemeral', ttl: '1h' }
                 : { type: 'ephemeral' };

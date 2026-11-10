@@ -361,6 +361,10 @@ claude:
   # This can be combined with the explicit system prompt and depth breakpoints below.
   # https://platform.claude.com/docs/en/build-with-claude/prompt-caching#automatic-caching
   enableAutomaticPromptCache: false
+  # With automatic prompt caching, also cache where the chat history ends.
+  # Use with presets that place prompts after the chat history: those prompts move with every
+  # new message, so the automatic cache at the end of the prompt is otherwise only read by swipes.
+  cacheChatHistoryEnd: false
   # Enables caching of the system prompt (if supported).
   # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
   # -- IMPORTANT! --

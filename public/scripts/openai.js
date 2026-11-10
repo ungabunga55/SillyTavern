@@ -758,6 +758,7 @@ export const settingsToUpdate = {
     claude_prompt_cache_mode: ['#claude_prompt_cache_mode', 'claude_prompt_cache_mode', false, false],
     claude_prompt_cache_depth: ['#claude_prompt_cache_depth', 'claude_prompt_cache_depth', false, false],
     claude_prompt_cache_system: ['#claude_prompt_cache_system', 'claude_prompt_cache_system', true, false],
+    claude_prompt_cache_history: ['#claude_prompt_cache_history', 'claude_prompt_cache_history', true, false],
     claude_prompt_cache_ttl: ['#claude_prompt_cache_ttl', 'claude_prompt_cache_ttl', false, false],
     ai21_model: ['#model_ai21_select', 'ai21_model', false, true],
     mistralai_model: ['#model_mistralai_select', 'mistralai_model', false, true],
@@ -1007,6 +1008,7 @@ const default_settings = {
     claude_prompt_cache_mode: 'config',
     claude_prompt_cache_depth: 0,
     claude_prompt_cache_system: false,
+    claude_prompt_cache_history: false,
     claude_prompt_cache_ttl: '5m',
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
@@ -4183,6 +4185,7 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.claude_prompt_cache_mode = settings.claude_prompt_cache_mode;
         generate_data.claude_prompt_cache_depth = Number(settings.claude_prompt_cache_depth);
         generate_data.claude_prompt_cache_system = Boolean(settings.claude_prompt_cache_system);
+        generate_data.claude_prompt_cache_history = Boolean(settings.claude_prompt_cache_history);
         generate_data.claude_prompt_cache_ttl = settings.claude_prompt_cache_ttl;
     }
 
@@ -6467,6 +6470,9 @@ function setClaudePromptCacheControls() {
     $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system, #surplus_claude_prompt_cache_system')
         .prop('checked', Boolean(oai_settings.claude_prompt_cache_system))
         .prop('disabled', !usesRuntimeSettings || mode === 'off');
+    $('#claude_prompt_cache_history, #surplus_claude_prompt_cache_history')
+        .prop('checked', Boolean(oai_settings.claude_prompt_cache_history))
+        .prop('disabled', mode !== 'automatic');
     $('#claude_prompt_cache_ttl, #openrouter_claude_prompt_cache_ttl, #surplus_claude_prompt_cache_ttl')
         .val(oai_settings.claude_prompt_cache_ttl)
         .prop('disabled', !usesRuntimeSettings || mode === 'off');
@@ -9703,6 +9709,12 @@ export function initOpenAI() {
 
     $('#claude_prompt_cache_system, #openrouter_claude_prompt_cache_system, #surplus_claude_prompt_cache_system').on('input', function () {
         oai_settings.claude_prompt_cache_system = Boolean($(this).prop('checked'));
+        setClaudePromptCacheControls();
+        saveSettingsDebounced();
+    });
+
+    $('#claude_prompt_cache_history, #surplus_claude_prompt_cache_history').on('input', function () {
+        oai_settings.claude_prompt_cache_history = Boolean($(this).prop('checked'));
         setClaudePromptCacheControls();
         saveSettingsDebounced();
     });
