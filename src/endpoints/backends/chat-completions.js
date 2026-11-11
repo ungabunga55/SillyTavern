@@ -2408,13 +2408,6 @@ async function sendClaudeRequest(request, response) {
                 : { type: 'ephemeral' };
         }
 
-        if (promptCache.automatic || promptCache.system || promptCache.depth !== -1) {
-            betaHeaders.push('prompt-caching-2024-07-31');
-            if (promptCache.ttl === '1h') {
-                betaHeaders.push('extended-cache-ttl-2025-04-11');
-            }
-        }
-
         if (isLimitedSampling) {
             if (requestBody.top_p < 1) {
                 delete requestBody.temperature;
