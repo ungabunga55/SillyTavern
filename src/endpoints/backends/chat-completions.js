@@ -936,6 +936,25 @@ function sanitizeSurplusRequestBody(requestBody, request) {
             delete requestBody.temperature;
             delete requestBody.top_p;
         }
+        // Gemini 4 only returns thought summaries when asked through Google's thinking_config
+        // (reasoning_effort never yields them on Carbon), and the two can't be combined,
+        // so the effort is sent as thinking_level instead.
+        if (/^gemini-4(?:$|[-.])/.test(nativeModel)) {
+            delete requestBody.reasoning_effort;
+            const thinkingConfig = {};
+            if (includeReasoning) thinkingConfig.include_thoughts = true;
+            if (hasEffort) {
+                const isXhigh = ['xhigh', 'max'].includes(effort);
+                // xhigh only exists on Hydrogen; there is no level below low.
+                thinkingConfig.thinking_level = isXhigh
+                    ? (/^gemini-4-hydrogen(?:$|-)/.test(nativeModel) ? 'xhigh' : 'high')
+                    : (effort === 'min' ? 'low' : effort);
+            }
+            if (Object.keys(thinkingConfig).length > 0) {
+                requestBody.extra_body = { google: { thinking_config: thinkingConfig } };
+            }
+            return;
+        }
         const reasoningEffort = getSurplusGenericReasoningEffort(effort);
         if (reasoningEffort) requestBody.reasoning_effort = reasoningEffort;
         return;
