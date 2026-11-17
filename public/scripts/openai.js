@@ -647,7 +647,7 @@ function isOpenAIResponsesNoSamplingModel(model, reasoningEffort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(modelId)) {
         return true;
     }
     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
@@ -3870,7 +3870,7 @@ function getReasoningEffort(settings = null, model = null) {
                 return undefined;
             case reasoning_effort_types.min:
                 if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
-                    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model)) {
+                    if (/^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(model)) {
                         return reasoning_effort_types.low;
                     }
                     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(model)) {
@@ -4656,7 +4656,7 @@ export async function createGenerationParameters(settings, model, type, messages
         delete generate_data.max_tokens;
         delete generate_data.logprobs;
         delete generate_data.top_logprobs;
-        if (/gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model) && !isNativeResponses) {
+        if (/gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(model) && !isNativeResponses) {
             delete generate_data.tools;
             delete generate_data.tool_choice;
         }

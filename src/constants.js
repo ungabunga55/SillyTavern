@@ -506,6 +506,8 @@ export const OPENAI_REASONING_EFFORT_MODELS = [
     'gpt-6-astra',
     'gpt-6-sol',
     'gpt-6.1-sol',
+    'gpt-6.2-astra',
+    'gpt-6.2-sol',
     'gpt-6-luna',
 ];
 

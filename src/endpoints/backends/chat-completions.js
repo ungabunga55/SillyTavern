@@ -423,7 +423,7 @@ function getOpenAIReasoningEffort(model, effort) {
         return effort;
     }
 
-    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
+    if (/^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(modelId)) {
         return 'low';
     }
 
@@ -473,7 +473,7 @@ function isOpenAIResponsesNoSamplingModel(model, effort) {
     if (/^(o1|o3|o4)/.test(modelId)) {
         return true;
     }
-    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(modelId)) {
+    if (/^gpt-5\.[56]/.test(modelId) || /^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(modelId)) {
         return true;
     }
     if (/^gpt-6-(?:sol|luna)(?:$|-)/.test(modelId)) {
@@ -864,7 +864,7 @@ function sanitizeSurplusRequestBody(requestBody, request) {
         const isReasoningEffortModel = OPENAI_REASONING_EFFORT_MODELS.includes(baseModel);
         let reasoningEffort;
         if (hasEffort && isReasoningEffortModel) {
-            reasoningEffort = effort === 'min' && /^gpt-6\.1-sol(?:$|-)/.test(baseModel)
+            reasoningEffort = effort === 'min' && /^gpt-6\.[12]-sol(?:$|-)/.test(baseModel)
                 ? 'none'
                 : getOpenAIReasoningEffort(baseModel, effort);
         }
@@ -919,8 +919,8 @@ function sanitizeSurplusRequestBody(requestBody, request) {
             }
 
             // Chat Completions tools: Astra never supports them; Sol/Luna only with reasoning_effort none.
-            if (/^gpt-6-astra(?:$|-)/.test(nativeModel)
-                || (/^gpt-6(?:\.1)?-(?:sol|luna)(?:$|-)/.test(nativeModel) && reasoningEffort !== 'none')) {
+            if (/^gpt-6(?:\.2)?-astra(?:$|-)/.test(nativeModel)
+                || (/^gpt-6(?:\.[12])?-(?:sol|luna)(?:$|-)/.test(nativeModel) && reasoningEffort !== 'none')) {
                 dropTools();
             }
         }
@@ -3858,7 +3858,7 @@ async function sendAzureOpenAIRequest(request, response) {
     apiRequestBody['reasoning_effort'] = getOpenAIReasoningEffort(request.body.model, request.body.reasoning_effort);
 
     // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
-    if (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+    if (/^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
         || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase()) && apiRequestBody['reasoning_effort'] !== 'none')) {
         delete apiRequestBody.tools;
         delete apiRequestBody.tool_choice;
@@ -5164,7 +5164,7 @@ router.post('/generate', async function (request, response) {
         // GPT-6 Astra never supports Chat Completions tools; Sol/Luna support tools only with reasoning_effort none.
         if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI
             && !useOpenAIResponsesApi
-            && (/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
+            && (/^gpt-6(?:(?:\.2)?-astra|\.[12]-sol)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
                 || (/^gpt-6-(?:sol|luna)(?:$|-)/.test(String(request.body.model || '').toLowerCase())
                     && String(requestBody?.reasoning_effort ?? bodyParams?.reasoning_effort ?? request.body.reasoning_effort ?? '').toLowerCase() !== 'none'))) {
             delete requestBody.tools;
