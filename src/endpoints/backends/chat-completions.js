@@ -945,9 +945,9 @@ function sanitizeSurplusRequestBody(requestBody, request) {
             if (includeReasoning) thinkingConfig.include_thoughts = true;
             if (hasEffort) {
                 const isXhigh = ['xhigh', 'max'].includes(effort);
-                // xhigh only exists on Hydrogen; there is no level below low.
+                // xhigh only exists on Hydrogen and Neon; there is no level below low.
                 thinkingConfig.thinking_level = isXhigh
-                    ? (/^gemini-4-hydrogen(?:$|-)/.test(nativeModel) ? 'xhigh' : 'high')
+                    ? (/^gemini-4-(?:hydrogen|neon)(?:$|-)/.test(nativeModel) ? 'xhigh' : 'high')
                     : (effort === 'min' ? 'low' : effort);
             }
             if (Object.keys(thinkingConfig).length > 0) {
@@ -2639,7 +2639,7 @@ async function sendMakerSuiteRequest(request, response) {
             'gemini-3.1-flash-image-preview',
         ];
 
-        const isThinkingConfigModel = m => (/^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m)) || (/^gemini-3[.\d]*-(flash|pro)/.test(m)) || /^gemini-4[.\d]*-(argon|carbon|hydrogen)/.test(m);
+        const isThinkingConfigModel = m => (/^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m)) || (/^gemini-3[.\d]*-(flash|pro)/.test(m)) || /^gemini-4[.\d]*-(argon|carbon|hydrogen|neon)/.test(m);
         const isImageSizeModel = m => /^gemini-[34]/.test(m);
 
         const noSearchModels = [

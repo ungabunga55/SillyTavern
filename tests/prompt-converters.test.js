@@ -329,6 +329,7 @@ describe('isGeminiNoSamplingModel', () => {
         'gemini-4-argon',
         'gemini-4-carbon',
         'gemini-4-hydrogen',
+        'gemini-4-neon',
     ])('omits sampling for %s', (model) => {
         expect(mod.isGeminiNoSamplingModel(model)).toBe(true);
     });

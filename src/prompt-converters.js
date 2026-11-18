@@ -1435,7 +1435,7 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
     }
 
     function getGemini4Budget() {
-        // Supports low, medium and high thinking levels (no minimal). Hydrogen adds xhigh.
+        // Supports low, medium and high thinking levels (no minimal). Hydrogen and Neon add xhigh.
         switch (reasoningEffort) {
             case REASONING_EFFORT.auto:
                 return null;
@@ -1448,7 +1448,7 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
                 return 'high';
             case REASONING_EFFORT.xhigh:
             case REASONING_EFFORT.max:
-                return /-hydrogen/.test(model) ? 'xhigh' : 'high';
+                return /-(hydrogen|neon)/.test(model) ? 'xhigh' : 'high';
         }
 
         return null;
@@ -1474,7 +1474,7 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         return null;
     }
 
-    if (/gemini-4[.\d]*-(argon|carbon|hydrogen)/.test(model)) {
+    if (/gemini-4[.\d]*-(argon|carbon|hydrogen|neon)/.test(model)) {
         return getGemini4Budget();
     }
 
