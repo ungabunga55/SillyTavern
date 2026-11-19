@@ -2734,6 +2734,10 @@ async function sendMakerSuiteRequest(request, response) {
             generationConfig: generationConfig,
         };
 
+        if (!useVertexAi) {
+            body.store = Boolean(request.body.makersuite_store);
+        }
+
         if (useSystemPrompt && Array.isArray(prompt.system_instruction.parts) && prompt.system_instruction.parts.length) {
             body.systemInstruction = prompt.system_instruction;
         }

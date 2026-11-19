@@ -826,6 +826,7 @@ export const settingsToUpdate = {
     assistant_prefill: ['#claude_assistant_prefill', 'assistant_prefill', false, false],
     assistant_impersonation: ['#claude_assistant_impersonation', 'assistant_impersonation', false, false],
     use_sysprompt: ['#use_sysprompt', 'use_sysprompt', true, false],
+    makersuite_store: ['#makersuite_store', 'makersuite_store', true, false],
     vertexai_auth_mode: ['#vertexai_auth_mode', 'vertexai_auth_mode', false, true],
     vertexai_region: ['#vertexai_region', 'vertexai_region', false, true],
     vertexai_express_project_id: ['#vertexai_express_project_id', 'vertexai_express_project_id', false, true],
@@ -1018,6 +1019,7 @@ const default_settings = {
     assistant_prefill: '',
     assistant_impersonation: '',
     use_sysprompt: false,
+    makersuite_store: false,
     vertexai_auth_mode: 'express',
     vertexai_region: 'us-central1',
     vertexai_express_project_id: '',
@@ -4245,6 +4247,9 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.stop = getCustomStoppingStrings(stopStringsLimit).slice(0, stopStringsLimit).filter(x => x.length >= 1 && x.length <= 16);
         generate_data.use_sysprompt = settings.use_sysprompt;
+        if (settings.chat_completion_source === chat_completion_sources.MAKERSUITE) {
+            generate_data.makersuite_store = settings.makersuite_store;
+        }
         if (settings.chat_completion_source === chat_completion_sources.VERTEXAI) {
             generate_data.vertexai_auth_mode = settings.vertexai_auth_mode;
             generate_data.vertexai_region = settings.vertexai_region;
@@ -9261,6 +9266,11 @@ export function initOpenAI() {
 
     $('#use_sysprompt').on('change', function () {
         oai_settings.use_sysprompt = !!$('#use_sysprompt').prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#makersuite_store').on('change', function () {
+        oai_settings.makersuite_store = !!$('#makersuite_store').prop('checked');
         saveSettingsDebounced();
     });
 
