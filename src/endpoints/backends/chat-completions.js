@@ -935,6 +935,8 @@ function sanitizeSurplusRequestBody(requestBody, request) {
         if (isGeminiNoSamplingModel(nativeModel.replace(/^(gemini-\d+)-(\d)(?=-)/, '$1.$2'))) {
             delete requestBody.temperature;
             delete requestBody.top_p;
+            delete requestBody.frequency_penalty;
+            delete requestBody.presence_penalty;
         }
         // Gemini 4 only returns thought summaries when asked through Google's thinking_config
         // (reasoning_effort never yields them on Carbon), and the two can't be combined,
