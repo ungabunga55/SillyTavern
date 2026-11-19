@@ -330,6 +330,10 @@ describe('isGeminiNoSamplingModel', () => {
         'gemini-4-carbon',
         'gemini-4-hydrogen',
         'gemini-4-neon',
+        'gemini-4',
+        'gemini-4.1',
+        'gemini-5',
+        'gemini-5-pro',
     ])('omits sampling for %s', (model) => {
         expect(mod.isGeminiNoSamplingModel(model)).toBe(true);
     });
@@ -339,6 +343,8 @@ describe('isGeminiNoSamplingModel', () => {
         'gemini-3.1-flash-lite-preview',
         'gemini-2.5-flash-lite',
         'gemma-3-27b-it',
+        'gemini-3',
+        'gemini-2.5',
     ])('keeps sampling for %s', (model) => {
         expect(mod.isGeminiNoSamplingModel(model)).toBe(false);
     });

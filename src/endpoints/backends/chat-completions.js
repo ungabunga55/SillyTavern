@@ -932,16 +932,16 @@ function sanitizeSurplusRequestBody(requestBody, request) {
         delete requestBody.seed;
         delete requestBody.logit_bias;
         // Some catalog ids write versions with dashes (gemini-3-6-flash).
-        if (isGeminiNoSamplingModel(nativeModel.replace(/^(gemini-\d+)-(\d)(?=-)/, '$1.$2'))) {
+        if (isGeminiNoSamplingModel(nativeModel.replace(/^(gemini-\d+)-(\d)(?=-|$)/, '$1.$2'))) {
             delete requestBody.temperature;
             delete requestBody.top_p;
             delete requestBody.frequency_penalty;
             delete requestBody.presence_penalty;
         }
-        // Gemini 4 only returns thought summaries when asked through Google's thinking_config
+        // Gemini 4+ only returns thought summaries when asked through Google's thinking_config
         // (reasoning_effort never yields them on Carbon), and the two can't be combined,
         // so the effort is sent as thinking_level instead.
-        if (/^gemini-4(?:$|[-.])/.test(nativeModel)) {
+        if (Number(nativeModel.match(/^gemini-(\d+)(?:$|[-.])/)?.[1]) >= 4) {
             delete requestBody.reasoning_effort;
             const thinkingConfig = {};
             if (includeReasoning) thinkingConfig.include_thoughts = true;

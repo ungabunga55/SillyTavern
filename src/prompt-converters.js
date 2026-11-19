@@ -1307,14 +1307,14 @@ export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, 
  * @returns {boolean} Whether temperature, topP, and topK must be omitted
  */
 export function isGeminiNoSamplingModel(model) {
-    const match = /^gemini-(\d+)(?:\.(\d+))?-(.+)$/.exec(String(model || '').toLowerCase());
+    const match = /^gemini-(\d+)(?:\.(\d+))?(?:-(.+))?$/.exec(String(model || '').toLowerCase());
     if (!match) {
         return false;
     }
 
     const major = Number(match[1]);
     const minor = Number(match[2] || 0);
-    const family = match[3];
+    const family = match[3] || '';
 
     return major > 3
         || (major === 3 && minor >= 6)
